@@ -58,6 +58,9 @@ class ChapterHtmlSlimParser {
   uint16_t viewportHeight;
   bool hyphenationEnabled;
   bool focusReadingEnabled;
+  // Vertical (tategaki) layout: lines become columns placed right to left, and
+  // currentPageNextY measures from the right edge of the page instead of the top.
+  bool verticalMode = false;
   const CssParser* cssParser;
   bool embeddedStyle;
   uint8_t imageRendering;
@@ -172,6 +175,10 @@ class ChapterHtmlSlimParser {
   void addTableRowSeparator();
   void setCurrentPageVisibleOffset(uint32_t offset);
   void makePages(bool includeLastLine = true);
+  // Places one vertical column left of the previous one, starting a new page when it does not fit.
+  void addColumnToPage(std::unique_ptr<TextBlock> column, uint32_t visibleOffset, size_t wordsConsumed);
+  // Room along the block axis: the page height, or its width in vertical text.
+  int blockAxisLimit() const { return verticalMode ? viewportWidth : viewportHeight; }
   static EpdFontFamily::Style fontStyleForTextDecoration(CssTextDecoration decoration);
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
   static void applyTextDecorationToEntry(StyleStackEntry& entry, const CssStyle& css);
@@ -222,6 +229,7 @@ class ChapterHtmlSlimParser {
     wordSpacingPercent = wordPercent;
   }
   void setParagraphIndentSpaces(const uint8_t spaces) { paragraphIndentSpaces = spaces; }
+  void setVerticalMode(const bool vertical) { verticalMode = vertical; }
 
   // One-shot parse: builds every page before returning (begin + step* + finish).
   bool parseAndBuildPages();

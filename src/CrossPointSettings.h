@@ -188,6 +188,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
 
+  // EPUB writing mode. Auto sets a book vertically when its spine declares
+  // page-progression-direction="rtl" (the EPUB 3 marker of vertical Japanese books).
+  enum WRITING_MODE {
+    WRITING_MODE_AUTO = 0,
+    WRITING_MODE_HORIZONTAL = 1,
+    WRITING_MODE_VERTICAL = 2,
+    WRITING_MODE_COUNT
+  };
+
   // How Select opens the reader menu: the classic full-screen list, or a toolbar
   // overlay (top/bottom bars with Contents / Text / More bottom-sheet panels)
   // painted over the page.
@@ -352,6 +361,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t backShortToFileBrowser = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
+  uint8_t writingMode = WRITING_MODE_AUTO;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)
   uint8_t tiltPageTurn = TILT_OFF;
   // Master reader-touch toggle on boards with a touch controller.

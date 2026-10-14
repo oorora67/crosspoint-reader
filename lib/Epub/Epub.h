@@ -72,6 +72,8 @@ class Epub {
   const std::string& getTitle() const;
   const std::string& getAuthor() const;
   const std::string& getLanguage() const;
+  // True when the spine declares page-progression-direction="rtl".
+  bool isPageProgressionRtl() const;
   std::string getCoverBmpPath(bool cropped = false, bool originalThresholds = false) const;
   bool generateCoverBmp(bool cropped = false, bool originalThresholds = false) const;
   std::string getThumbBmpPath() const;

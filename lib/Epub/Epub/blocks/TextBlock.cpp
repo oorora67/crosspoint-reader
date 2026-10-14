@@ -6,17 +6,23 @@
 #include <Memory.h>
 #include <MemoryManager.h>
 #include <Serialization.h>
+#include <Utf8.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "../../../../src/fontIds.h"
 
-size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const uint16_t textBytes) {
+size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const bool hasVertical,
+                            const uint16_t textBytes) {
   // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text.
   size_t size =
       static_cast<size_t>(wordCount) * (sizeof(SourceRange) + sizeof(uint16_t) + sizeof(int16_t) + sizeof(uint8_t));
   if (hasFocus) {
     size += static_cast<size_t>(wordCount) * (sizeof(uint16_t) + sizeof(uint8_t));
+  }
+  if (hasVertical) {
+    size += wordCount;
   }
   return size + textBytes;
 }
@@ -39,6 +45,10 @@ void TextBlock::bindArenaPointers() {
     focusBoundaryArr = base + off;
     off += wc;
   }
+  if (isVertical) {
+    cellKindsArr = base + off;
+    off += wc;
+  }
   textArr = reinterpret_cast<const char*>(base + off);
 }
 
@@ -46,9 +56,11 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSuffixX, const BlockStyle& blockStyle,
                      std::vector<std::string> rubyTexts, std::vector<LinkSpan> linkSpans,
-                     const std::vector<SourceRange>& ranges, const uint16_t paragraphStartWord)
+                     const std::vector<SourceRange>& ranges, const uint16_t paragraphStartWord,
+                     const std::vector<VerticalText::CellKind>& cellKinds, const uint16_t verticalEm)
     : blockStyle(blockStyle),
       paragraphStartWord(paragraphStartWord),
+      verticalEm(verticalEm),
       rubyTexts(std::move(rubyTexts)),
       linkSpans(std::move(linkSpans)) {
   // Same invariant as deserialize(): a block never holds an all-empty rubyTexts, so a
@@ -62,7 +74,9 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
   // Focus annotations are optional: empty vectors mean no word in this block has a split.
   // When present, they must be sized in lockstep with words[].
   const bool hasFocus = !focusBoundary.empty();
-  if ((!ranges.empty() && ranges.size() != words.size()) || words.size() != wordXpos.size() ||
+  const bool hasVertical = !cellKinds.empty();
+  if ((!ranges.empty() && ranges.size() != words.size()) ||
+      (hasVertical && (hasFocus || cellKinds.size() != words.size())) || words.size() != wordXpos.size() ||
       words.size() != wordStyles.size() || words.size() > 10000 ||
       (paragraphStartWord != UINT16_MAX && paragraphStartWord >= words.size()) ||
       (hasFocus && (words.size() != focusBoundary.size() || words.size() != focusSuffixX.size()))) {
@@ -76,6 +90,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
 
   numWords = static_cast<uint16_t>(words.size());
   focusPresent = hasFocus;
+  isVertical = hasVertical;
   if (numWords == 0) {
     return;  // valid empty block, no arena
   }
@@ -88,12 +103,13 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     LOG_ERR("TXB", "Construction failed: text size %u exceeds arena limit", static_cast<uint32_t>(totalText));
     numWords = 0;
     focusPresent = false;
+    isVertical = false;
     isValid = false;
     return;
   }
   textBytes = static_cast<uint16_t>(totalText);
 
-  const size_t size = arenaSize(numWords, focusPresent, textBytes);
+  const size_t size = arenaSize(numWords, focusPresent, isVertical, textBytes);
   arena = makeUniqueNoThrow<uint8_t[]>(size);
   if (!arena) {
     // Evict rebuildable caches (SD-font mini data, render glyph cache) and
@@ -106,6 +122,7 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
     numWords = 0;
     textBytes = 0;
     focusPresent = false;
+    isVertical = false;
     isValid = false;
     return;
   }
@@ -134,6 +151,12 @@ TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<in
       boundary[i] = focusBoundary[i];
     }
   }
+  if (isVertical) {
+    auto* kinds = const_cast<uint8_t*>(cellKindsArr);
+    for (uint16_t i = 0; i < numWords; i++) {
+      kinds[i] = static_cast<uint8_t>(cellKinds[i]);
+    }
+  }
 }
 
 bool TextBlock::hasRuby() const {
@@ -146,6 +169,10 @@ bool TextBlock::hasRuby() const {
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   if (!isValid) {
     LOG_ERR("TXB", "Render skipped: invalid block");
+    return;
+  }
+  if (isVertical) {
+    renderVertical(renderer, fontId, x, y);
     return;
   }
   const int8_t tracking = blockStyle.characterSpacing;
@@ -312,6 +339,92 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   flushDecorations();
 }
 
+int TextBlock::cellLength(const GfxRenderer& renderer, const int fontId, const uint16_t i) const {
+  const EpdFontFamily::Style style = wordStyle(i);
+  if (cellKind(i) == VerticalText::CellKind::Sideways) {
+    return renderer.getTextAdvanceX(fontId, wordText(i), style);
+  }
+  const bool half = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
+  return half ? verticalEm / 2 : verticalEm;
+}
+
+// One column: x is its centre line, y its top. Ruby goes on the right of the base text
+// (JLREQ 3.3.2); underlines become side lines on the right, strike-through runs down the middle.
+void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, const int centerX, const int y) const {
+  const int em = verticalEm;
+  const int rubyEm = std::max(1, em / 2);
+  const bool scanning = renderer.isFontCacheScanning();
+  const bool blockHasRuby = hasRuby();
+
+  for (uint16_t i = 0; i < numWords; i++) {
+    const EpdFontFamily::Style style = wordStyle(i);
+    const int top = y + xposArr[i];
+    int cellCenter = centerX;
+    int cellEm = em;
+    if ((style & EpdFontFamily::SUP) != 0) {
+      cellCenter += em / 4;
+      cellEm = rubyEm;
+    } else if ((style & EpdFontFamily::SUB) != 0) {
+      cellCenter -= em / 4;
+      cellEm = rubyEm;
+    }
+    renderer.drawVerticalCell(fontId, cellCenter, top, cellEm, wordText(i), cellKind(i), style);
+
+    if (blockHasRuby && i < rubyTexts.size() && !rubyTexts[i].empty() && (style & EpdFontFamily::RUBY_CONTINUE) == 0) {
+      uint16_t groupLast = i;
+      while (groupLast + 1 < numWords && (wordStyle(groupLast + 1) & EpdFontFamily::RUBY_CONTINUE) != 0) {
+        groupLast++;
+      }
+      const int groupLength = xposArr[groupLast] + cellLength(renderer, fontId, groupLast) - xposArr[i];
+      const char* ruby = rubyTexts[i].c_str();
+      int count = 0;
+      for (const char* p = ruby; *p; ++p) {
+        if ((static_cast<uint8_t>(*p) & 0xC0) != 0x80) count++;
+      }
+      const int rubyLength = count * rubyEm;
+      // Ruby shorter than a multi-character base is spread over it 1:2:1; otherwise centred.
+      int pos = top + (groupLength - rubyLength) / 2;
+      int step = rubyEm;
+      if (count > 1 && rubyLength < groupLength && groupLast > i) {
+        const int unit = (groupLength - rubyLength) / (2 * count);
+        pos = top + unit;
+        step = rubyEm + 2 * unit;
+      }
+      const int rubyCenter = centerX + em / 2 + rubyEm / 2;
+      const auto* p = reinterpret_cast<const unsigned char*>(ruby);
+      while (*p) {
+        const unsigned char* start = p;
+        const uint32_t cp = utf8NextCodepoint(&p);
+        if (cp == 0) break;
+        char buf[8];
+        const size_t len = std::min<size_t>(static_cast<size_t>(p - start), sizeof(buf) - 1);
+        memcpy(buf, start, len);
+        buf[len] = '\0';
+        const auto kind =
+            VerticalText::isUpright(cp) ? VerticalText::uprightKind(cp) : VerticalText::CellKind::Combined;
+        renderer.drawVerticalCell(fontId, rubyCenter, pos, rubyEm, buf, kind, EpdFontFamily::SUP);
+        pos += step;
+      }
+    }
+
+    if (scanning || !EpdFontFamily::hasTextDecoration(style)) {
+      continue;
+    }
+    // Run the line on to the next cell when it carries the same decoration, so a decorated
+    // word reads as one line.
+    const bool continues = i + 1 < numWords && (wordStyle(i + 1) & EpdFontFamily::TEXT_DECORATION_MASK) ==
+                                                   (style & EpdFontFamily::TEXT_DECORATION_MASK);
+    const int bottom = continues ? y + xposArr[i + 1] : top + cellLength(renderer, fontId, i);
+    if ((style & EpdFontFamily::UNDERLINE) != 0) {
+      const int lineX = centerX + em / 2 + 1;
+      renderer.drawLine(lineX, top, lineX, bottom, 2, true);
+    }
+    if ((style & EpdFontFamily::STRIKETHROUGH) != 0) {
+      renderer.drawLine(centerX, top, centerX, bottom, 2, true);
+    }
+  }
+}
+
 bool TextBlock::serialize(HalFile& file) const {
   if (!isValid) {
     LOG_ERR("TXB", "Serialization failed: invalid block");
@@ -322,11 +435,14 @@ bool TextBlock::serialize(HalFile& file) const {
   // exactly the on-disk layout (see TextBlock.h), so one write covers all
   // per-word arrays and the text blob.
   serialization::writePod(file, numWords);
-  serialization::writePod(file, static_cast<uint8_t>(focusPresent ? 1 : 0));
+  serialization::writePod(file, static_cast<uint8_t>((focusPresent ? 1 : 0) | (isVertical ? 2 : 0)));
   serialization::writePod(file, textBytes);
   serialization::writePod(file, paragraphStartWord);
+  if (isVertical) {
+    serialization::writePod(file, verticalEm);
+  }
   if (numWords > 0) {
-    const size_t size = arenaSize(numWords, focusPresent, textBytes);
+    const size_t size = arenaSize(numWords, focusPresent, isVertical, textBytes);
     if (file.write(arena.get(), size) != size) {
       LOG_ERR("TXB", "Serialization failed: arena write (%u bytes)", static_cast<uint32_t>(size));
       return false;
@@ -360,13 +476,17 @@ bool TextBlock::serialize(HalFile& file) const {
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   uint16_t wc;
-  uint8_t hasFocus;
+  uint8_t flags;
   uint16_t textBytes;
   uint16_t paragraphStartWord;
+  uint16_t verticalEm = 0;
   serialization::readPod(file, wc);
-  serialization::readPod(file, hasFocus);
+  serialization::readPod(file, flags);
   serialization::readPod(file, textBytes);
   serialization::readPod(file, paragraphStartWord);
+  if ((flags & 2) != 0) {
+    serialization::readPod(file, verticalEm);
+  }
 
   // Sanity checks: cap the arena allocation and reject impossible geometry
   // (every word carries at least its NUL terminator).
@@ -387,10 +507,16 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   block->numWords = wc;
   block->textBytes = textBytes;
   block->paragraphStartWord = paragraphStartWord;
-  block->focusPresent = hasFocus != 0;
+  if (flags >= 3 || ((flags & 2) != 0 && verticalEm == 0)) {
+    LOG_ERR("TXB", "Deserialization failed: bad block flags %u", flags);
+    return nullptr;
+  }
+  block->focusPresent = (flags & 1) != 0;
+  block->isVertical = (flags & 2) != 0;
+  block->verticalEm = verticalEm;
 
   if (wc > 0) {
-    const size_t size = arenaSize(wc, block->focusPresent, textBytes);
+    const size_t size = arenaSize(wc, block->focusPresent, block->isVertical, textBytes);
     block->arena = makeUniqueNoThrow<uint8_t[]>(size);
     if (!block->arena) {
       LOG_ERR("TXB", "OOM: arena %u bytes", static_cast<uint32_t>(size));
@@ -415,6 +541,14 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
       if (textOff[i] <= textOff[i - 1] || textOff[i] >= textBytes || text[textOff[i] - 1] != '\0') {
         LOG_ERR("TXB", "Deserialization failed: corrupt word offset %u", i);
         return nullptr;
+      }
+    }
+    if (block->isVertical) {
+      for (uint16_t i = 0; i < wc; i++) {
+        if (block->cellKindsArr[i] > static_cast<uint8_t>(VerticalText::CellKind::Combined)) {
+          LOG_ERR("TXB", "Deserialization failed: bad cell kind %u", block->cellKindsArr[i]);
+          return nullptr;
+        }
       }
     }
   }

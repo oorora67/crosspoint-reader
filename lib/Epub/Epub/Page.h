@@ -61,12 +61,14 @@ class PageImage final : public PageElement {
 };
 
 class PageHorizontalRule final : public PageElement {
-  uint16_t width;
+  uint16_t width;  // length of the rule
   uint8_t thickness;
+  bool vertical;  // runs down the page (vertical text) instead of across
 
  public:
-  PageHorizontalRule(uint16_t width, uint8_t thickness, const int16_t xPos, const int16_t yPos)
-      : PageElement(xPos, yPos), width(width), thickness(thickness) {}
+  PageHorizontalRule(uint16_t width, uint8_t thickness, const int16_t xPos, const int16_t yPos,
+                     const bool vertical = false)
+      : PageElement(xPos, yPos), width(width), thickness(thickness), vertical(vertical) {}
 
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
   bool serialize(HalFile& file) override;

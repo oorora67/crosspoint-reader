@@ -375,6 +375,11 @@ void EpubReaderActivity::openDictionaryWordSelect() {
 void EpubReaderActivity::startClipSelection(const int initialX, const int initialY,
                                             const ClipSelectionActivity::Mode mode) {
   if (!section || !epub || section->currentPage < 0 || section->currentPage >= section->pageCount) return;
+  // Selection draws and navigates words as horizontal rows; vertical columns are not supported yet.
+  if (usesVerticalLayout()) {
+    LOG_INF("ERS", "Word selection is not available in vertical layout");
+    return;
+  }
 
   const int pageNumber = section->currentPage;
   const uint16_t pageCount = section->pageCount;
@@ -411,8 +416,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
     requestUpdate();
     return;
   }
-  const uint32_t layoutSignature =
-      readerRenderSpecSignature(SETTINGS.readerRenderSpec(buildViewportWidth, buildViewportHeight));
+  const uint32_t layoutSignature = readerRenderSpecSignature(bookRenderSpec(buildViewportWidth, buildViewportHeight));
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
@@ -599,7 +603,7 @@ void EpubReaderActivity::loop() {
     if (lock.ownsLock() && section && !section->isBuilding() && section->isPartial() && buildViewportWidth > 0 &&
         !partialRebuildStartFailed &&
         section->currentPage + PARTIAL_REBUILD_START_MARGIN >= static_cast<int>(section->pageCount)) {
-      const ReaderRenderSpec buildSpec = SETTINGS.readerRenderSpec(buildViewportWidth, buildViewportHeight);
+      const ReaderRenderSpec buildSpec = bookRenderSpec(buildViewportWidth, buildViewportHeight);
       if (!section->startBuild(buildSpec)) {
         partialRebuildStartFailed = true;
         LOG_ERR("ERS", "Failed to start deferred partial extension build");
@@ -650,8 +654,9 @@ void EpubReaderActivity::loop() {
     pendingReadFolderMove = false;
   }
 
-  const auto touch =
-      ReaderUtils::detectTouchPageTurn(renderer, mappedInput, ReaderUtils::isRtlBookLanguage(epub->getLanguage()));
+  // Vertical books turn pages right to left, like RTL-language books.
+  const auto touch = ReaderUtils::detectTouchPageTurn(
+      renderer, mappedInput, ReaderUtils::isRtlBookLanguage(epub->getLanguage()) || usesVerticalLayout());
 
   if (showBookmarkMessage && (millis() - bookmarkMessageTime) >= ReaderUtils::BOOKMARK_MESSAGE_DURATION_MS) {
     showBookmarkMessage = false;
@@ -890,7 +895,8 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  // Vertical books advance to the left, so the left front button turns forward.
+  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput, usesVerticalLayout());
   prevTriggered = prevTriggered || touch.prev;
   nextTriggered = nextTriggered || touch.next;
   if (!prevTriggered && !nextTriggered) {
@@ -1533,7 +1539,7 @@ void EpubReaderActivity::renderBook() {
   buildViewportWidth = viewportWidth;
   buildViewportHeight = viewportHeight;
 
-  const ReaderRenderSpec renderSpec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
+  const ReaderRenderSpec renderSpec = bookRenderSpec(viewportWidth, viewportHeight);
 
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
@@ -2153,8 +2159,7 @@ int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int
   int top, right, bottom, left;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
   const int fontId = SETTINGS.getReaderFontId();
-  const uint32_t signature =
-      readerRenderSpecSignature(SETTINGS.readerRenderSpec(buildViewportWidth, buildViewportHeight));
+  const uint32_t signature = readerRenderSpecSignature(bookRenderSpec(buildViewportWidth, buildViewportHeight));
   uint16_t wordIndex = 0;
   for (const auto& element : page.elements) {
     if (element->getTag() != TAG_PageLine) continue;
@@ -2197,8 +2202,7 @@ void EpubReaderActivity::drawClippingHighlights(const Page& page, const int font
   const auto started = millis();
   size_t highlightedWords = 0;
   const uint16_t currentPage = static_cast<uint16_t>(section->currentPage);
-  const uint32_t layoutSignature =
-      readerRenderSpecSignature(SETTINGS.readerRenderSpec(buildViewportWidth, buildViewportHeight));
+  const uint32_t layoutSignature = readerRenderSpecSignature(bookRenderSpec(buildViewportWidth, buildViewportHeight));
   const auto isHighlighted = [&](const uint16_t wordIndex, const TextBlock::SourceRange range) {
     // ponytail: scan at most 256 C3 / 1024 S3 clippings per word; index by chapter if this becomes slow.
     for (size_t index = 0; index < CLIPPINGS.clippingCount(); ++index) {
@@ -2315,6 +2319,23 @@ constexpr int kTextRowCount = static_cast<int>(std::size(kTextRowNames));
 static_assert(std::size(kSpacingIds) == CrossPointSettings::LINE_COMPRESSION_COUNT, "line spacing labels");
 static_assert(std::size(kAlignIds) == CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT, "alignment labels");
 }  // namespace
+
+bool EpubReaderActivity::usesVerticalLayout() const {
+  switch (SETTINGS.writingMode) {
+    case CrossPointSettings::WRITING_MODE_VERTICAL:
+      return true;
+    case CrossPointSettings::WRITING_MODE_HORIZONTAL:
+      return false;
+    default:
+      return epub && epub->isPageProgressionRtl();
+  }
+}
+
+ReaderRenderSpec EpubReaderActivity::bookRenderSpec(const uint16_t viewportWidth, const uint16_t viewportHeight) const {
+  ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
+  spec.verticalMode = usesVerticalLayout();
+  return spec;
+}
 
 bool EpubReaderActivity::usesToolbarMenu() const {
   // Both board classes drive the same chrome: touch through the FreeInkUI tap

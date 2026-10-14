@@ -792,6 +792,37 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
   return scaleSpace(renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR), wordSpacingPercent) * paragraphIndentSpaces;
 }
 // Consumes data to minimize memory usage
+void ParsedText::prepareSdFontMetrics(const GfxRenderer& renderer, const int fontId) {
+  // Ensure SD card font glyph metrics are loaded before measuring word widths.
+  // For flash-based fonts isSdCardFont() returns false and this block is skipped
+  // entirely — no heap allocation. For SD card fonts this reads glyph metadata
+  // (advanceX only, no bitmaps) for all unique codepoints in this paragraph so
+  // that calculateWordWidths() can measure text without on-demand SD I/O.
+  if (!renderer.isSdCardFont(fontId)) return;
+  // Style mask: only ask the SD font to load advances for styles actually
+  // used in this paragraph. Style index is the low two bits (regular/bold/
+  // italic/bold-italic); the underline bit is irrelevant to advance metrics.
+  uint8_t styleMask = 0;
+  for (auto s : wordStyles) {
+    styleMask |= static_cast<uint8_t>(1u << (static_cast<uint8_t>(s) & 0x03));
+  }
+  if (styleMask == 0) styleMask = 0x01;  // defensive: regular only
+  // Hand the arena chunks over as packed NUL-separated word runs. Two small
+  // pointer tables (~8 B per live chunk) instead of per-word iteration.
+  std::vector<const char*> segments;
+  std::vector<size_t> segmentLens;
+  segments.reserve(wordStore.chunkCount());
+  segmentLens.reserve(wordStore.chunkCount());
+  for (size_t i = 0; i < wordStore.chunkCount(); ++i) {
+    const char* data = wordStore.chunkData(i);
+    if (!data) continue;  // retired chunk
+    segments.push_back(data);
+    segmentLens.push_back(wordStore.chunkUsed(i));
+  }
+  renderer.ensureSdCardFontReady(fontId, segments.data(), segmentLens.data(), segments.size(), words.size() > 1,
+                                 hyphenationEnabled, styleMask);
+}
+
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                                        const bool includeLastLine, const int8_t characterSpacing,
@@ -820,35 +851,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
       blockStyle.alignment == CssTextAlign::Justify ||
       (blockStyle.isRtl ? blockStyle.alignment == CssTextAlign::Right : blockStyle.alignment == CssTextAlign::Left);
 
-  // Ensure SD card font glyph metrics are loaded before measuring word widths.
-  // For flash-based fonts isSdCardFont() returns false and this block is skipped
-  // entirely — no heap allocation. For SD card fonts this reads glyph metadata
-  // (advanceX only, no bitmaps) for all unique codepoints in this paragraph so
-  // that calculateWordWidths() can measure text without on-demand SD I/O.
-  if (renderer.isSdCardFont(fontId)) {
-    // Style mask: only ask the SD font to load advances for styles actually
-    // used in this paragraph. Style index is the low two bits (regular/bold/
-    // italic/bold-italic); the underline bit is irrelevant to advance metrics.
-    uint8_t styleMask = 0;
-    for (auto s : wordStyles) {
-      styleMask |= static_cast<uint8_t>(1u << (static_cast<uint8_t>(s) & 0x03));
-    }
-    if (styleMask == 0) styleMask = 0x01;  // defensive: regular only
-    // Hand the arena chunks over as packed NUL-separated word runs. Two small
-    // pointer tables (~8 B per live chunk) instead of per-word iteration.
-    std::vector<const char*> segments;
-    std::vector<size_t> segmentLens;
-    segments.reserve(wordStore.chunkCount());
-    segmentLens.reserve(wordStore.chunkCount());
-    for (size_t i = 0; i < wordStore.chunkCount(); ++i) {
-      const char* data = wordStore.chunkData(i);
-      if (!data) continue;  // retired chunk
-      segments.push_back(data);
-      segmentLens.push_back(wordStore.chunkUsed(i));
-    }
-    renderer.ensureSdCardFontReady(fontId, segments.data(), segmentLens.data(), segments.size(), words.size() > 1,
-                                   hyphenationEnabled, styleMask);
-  }
+  prepareSdFontMetrics(renderer, fontId);
 
   const int pageWidth = viewportWidth;
   auto wordWidths = calculateWordWidths(renderer, fontId);
@@ -870,23 +873,25 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   // Remove consumed words so size() reflects only remaining words
   if (lineCount > 0) {
-    firstLineConsumed = true;
+    releaseConsumedWords(lineBreakIndices[lineCount - 1]);
+  }
+}
 
-    const size_t consumed = lineBreakIndices[lineCount - 1];
-    for (size_t i = 0; i < consumed; ++i) {
-      wordStore.release(words[i]);  // retires arena chunks as lines are consumed
-    }
-    words.erase(words.begin(), words.begin() + consumed);
-    wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
-    wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
-    wordNoSpaceBefore.erase(wordNoSpaceBefore.begin(), wordNoSpaceBefore.begin() + consumed);
-    wordFocusBoundary.erase(wordFocusBoundary.begin(), wordFocusBoundary.begin() + consumed);
-    wordLinkIds.erase(wordLinkIds.begin(), wordLinkIds.begin() + consumed);
-    eraseVisibleOffsetPrefix(consumed);
-    if (!rubyTexts.empty()) {
-      const size_t rtConsumed = std::min(consumed, rubyTexts.size());
-      rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
-    }
+void ParsedText::releaseConsumedWords(const size_t consumed) {
+  firstLineConsumed = true;
+  for (size_t i = 0; i < consumed; ++i) {
+    wordStore.release(words[i]);  // retires arena chunks as lines are consumed
+  }
+  words.erase(words.begin(), words.begin() + consumed);
+  wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
+  wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
+  wordNoSpaceBefore.erase(wordNoSpaceBefore.begin(), wordNoSpaceBefore.begin() + consumed);
+  wordFocusBoundary.erase(wordFocusBoundary.begin(), wordFocusBoundary.begin() + consumed);
+  wordLinkIds.erase(wordLinkIds.begin(), wordLinkIds.begin() + consumed);
+  eraseVisibleOffsetPrefix(consumed);
+  if (!rubyTexts.empty()) {
+    const size_t rtConsumed = std::min(consumed, rubyTexts.size());
+    rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
   }
 }
 

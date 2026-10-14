@@ -121,6 +121,21 @@ class ParsedText {
                    const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                    const GfxRenderer& renderer, int fontId);
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
+  void prepareSdFontMetrics(const GfxRenderer& renderer, int fontId);
+  // Drops the first `consumed` words once their lines (or columns) were handed out.
+  void releaseConsumedWords(size_t consumed);
+  bool beginsWithIdeographicSpace() const;
+  // Vertical layout helpers (ParsedTextVertical.cpp).
+  struct VerticalCell;
+  template <typename Fn>
+  void forEachVerticalCell(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex, Fn&& fn) const;
+  uint16_t verticalWordLength(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex) const;
+  int verticalGapBefore(const GfxRenderer& renderer, int fontId, size_t wordIndex) const;
+  int verticalRubyLength(int em, size_t wordIndex) const;
+  int verticalFirstColumnIndent(const GfxRenderer& renderer, int fontId, int em) const;
+  bool extractColumn(size_t first, size_t last, int columnLength, int em, bool isLastColumn,
+                     const std::function<void(std::unique_ptr<TextBlock>, uint32_t, size_t)>& processColumn,
+                     const GfxRenderer& renderer, int fontId);
 
  public:
   explicit ParsedText(const bool hyphenationEnabled = false, const bool focusReadingEnabled = false,
@@ -157,4 +172,10 @@ class ParsedText {
                              const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
                              bool includeLastLine = true, int8_t characterSpacing = 0,
                              uint8_t wordSpacingPercent = 100);
+  // Vertical (tategaki) layout: hands out columns of at most columnLength pixels, top to bottom.
+  // Each column is a vertical TextBlock (one word per cell); processColumn also receives the
+  // number of words the column consumed, for footnote bookkeeping.
+  void layoutVerticalColumns(const GfxRenderer& renderer, int fontId, uint16_t columnLength,
+                             const std::function<void(std::unique_ptr<TextBlock>, uint32_t, size_t)>& processColumn,
+                             bool includeLastLine = true, int8_t characterSpacing = 0);
 };

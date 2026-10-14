@@ -15,6 +15,8 @@ class FontCacheManager;
 class SdCardFont;
 class TtfEpdFont;
 
+#include <VerticalText.h>
+
 #include <array>
 #include <cstring>
 #include <map>
@@ -359,6 +361,14 @@ class GfxRenderer {
   void drawTextRotated90CW(int fontId, int x, int y, const char* text, bool black = true,
                            EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getTextHeight(int fontId) const;
+
+  // Vertical (tategaki) text. The em is the cell size along a column: the advance of an
+  // ideographic space, or the font's ascender plus descender when it has no CJK glyphs.
+  int getVerticalEm(int fontId) const;
+  // Draws one cell of a column whose centre line is centerX; top is the cell's top edge and
+  // em its size. SUP/SUB styles draw at half size (ruby); pass the halved em with them.
+  void drawVerticalCell(int fontId, int centerX, int top, int em, const char* text, VerticalText::CellKind kind,
+                        EpdFontFamily::Style style = EpdFontFamily::REGULAR, bool black = true) const;
 
   // Grayscale functions
   void setRenderMode(RenderMode mode);
