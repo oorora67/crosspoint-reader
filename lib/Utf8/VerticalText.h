@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <string_view>
 
 // Glyph orientation for vertical (tategaki) text. The classes follow the
@@ -53,10 +55,8 @@ inline bool isSmallKana(const uint32_t cp) {
   static constexpr uint16_t SMALL_KANA[] = {0x3041, 0x3043, 0x3045, 0x3047, 0x3049, 0x3063, 0x3083, 0x3085,
                                             0x3087, 0x308E, 0x3095, 0x3096, 0x30A1, 0x30A3, 0x30A5, 0x30A7,
                                             0x30A9, 0x30C3, 0x30E3, 0x30E5, 0x30E7, 0x30EE, 0x30F5, 0x30F6};
-  for (const uint16_t kana : SMALL_KANA) {
-    if (cp == kana) return true;
-  }
-  return cp >= 0x31F0 && cp <= 0x31FF;  // Katakana Phonetic Extensions
+  return std::find(std::begin(SMALL_KANA), std::end(SMALL_KANA), cp) != std::end(SMALL_KANA) ||
+         (cp >= 0x31F0 && cp <= 0x31FF);  // Katakana Phonetic Extensions
 }
 
 // Characters whose vertical form is the horizontal glyph turned 90 degrees

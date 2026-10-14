@@ -20,11 +20,8 @@ namespace {
 bool isHalfSize(const EpdFontFamily::Style style) { return (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0; }
 
 uint32_t countCodepoints(const std::string_view text) {
-  uint32_t count = 0;
-  for (const char c : text) {
-    if ((static_cast<uint8_t>(c) & 0xC0) != 0x80) count++;
-  }
-  return count;
+  return static_cast<uint32_t>(
+      std::count_if(text.begin(), text.end(), [](const char c) { return (static_cast<uint8_t>(c) & 0xC0) != 0x80; }));
 }
 
 // Copies text without soft hyphens (U+00AD): vertical columns never hyphenate.
@@ -51,9 +48,9 @@ bool joinsPrevious(const uint32_t cp) {
 
 struct ParsedText::VerticalCell {
   std::string_view text;
-  VerticalText::CellKind kind;
-  uint16_t length;      // extent down the column, before character spacing
-  uint16_t codepoints;  // source codepoints the cell covers
+  VerticalText::CellKind kind = VerticalText::CellKind::Upright;
+  uint16_t length = 0;      // extent down the column, before character spacing
+  uint16_t codepoints = 0;  // source codepoints the cell covers
 };
 
 bool ParsedText::beginsWithIdeographicSpace() const {
@@ -349,7 +346,8 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
         break;
     }
     if (shift != 0) {
-      for (auto& offset : cellOffsets) offset = static_cast<int16_t>(offset + shift);
+      std::transform(cellOffsets.begin(), cellOffsets.end(), cellOffsets.begin(),
+                     [shift](const int16_t offset) { return static_cast<int16_t>(offset + shift); });
     }
   }
 
