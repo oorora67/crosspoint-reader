@@ -234,7 +234,15 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
   std::vector<TextBlock::SourceRange> cellRanges;
   std::vector<uint16_t> cellLengths;
   std::vector<uint8_t> cellLinkIds;
-  bool anyRuby = false;
+  // One cell per word for CJK text, so the word count is the usual size; reserve it once.
+  const size_t expectedCells = last - first;
+  cellTexts.reserve(expectedCells);
+  cellOffsets.reserve(expectedCells);
+  cellStyles.reserve(expectedCells);
+  cellKinds.reserve(expectedCells);
+  cellRanges.reserve(expectedCells);
+  cellLengths.reserve(expectedCells);
+  cellLinkIds.reserve(expectedCells);
   uint16_t paragraphStartCell = UINT16_MAX;
 
   // Ruby group state. JLREQ 3.3.2: when the ruby is longer than its base, the base characters
@@ -274,7 +282,6 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
 
     forEachVerticalCell(renderer, fontId, em, i, [&](const VerticalCell& cell) {
       EpdFontFamily::Style style = wordStyle;
-      std::string ruby;
       if (inGroup) {
         if (groupExtra > 0 && groupCells > 0) {
           const int padTarget = groupExtra * (2 * groupCellIndex + 1) / (2 * groupCells);
@@ -282,8 +289,9 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
           groupPadDone = padTarget;
         }
         if (groupCellIndex == 0) {
-          ruby = rubyTexts[i];
-          anyRuby = true;
+          // Ruby is rare: the per-cell ruby list exists only for columns that carry some.
+          cellRuby.resize(cellTexts.size() + 1);
+          cellRuby.back() = rubyTexts[i];
         } else {
           style = static_cast<EpdFontFamily::Style>(style | EpdFontFamily::RUBY_CONTINUE);
         }
@@ -304,7 +312,6 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
       cellOffsets.push_back(static_cast<int16_t>(pos));
       cellStyles.push_back(style);
       cellKinds.push_back(cell.kind);
-      cellRuby.push_back(std::move(ruby));
       cellRanges.push_back({start, end});
       cellLengths.push_back(cell.length);
       cellLinkIds.push_back(linkId);
@@ -370,7 +377,7 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
     }
   }
 
-  if (!anyRuby) cellRuby.clear();
+  if (!cellRuby.empty()) cellRuby.resize(cellTexts.size());
   auto block = makeUniqueNoThrow<TextBlock>(cellTexts, cellOffsets, cellStyles, std::vector<uint8_t>{},
                                             std::vector<uint16_t>{}, blockStyle, std::move(cellRuby), std::move(links),
                                             cellRanges, paragraphStartCell, cellKinds, static_cast<uint16_t>(em));

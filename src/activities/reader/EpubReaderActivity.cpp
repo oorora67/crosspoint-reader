@@ -377,7 +377,10 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
   if (!section || !epub || section->currentPage < 0 || section->currentPage >= section->pageCount) return;
   // Selection draws and navigates words as horizontal rows; vertical columns are not supported yet.
   if (usesVerticalLayout()) {
-    LOG_INF("ERS", "Word selection is not available in vertical layout");
+    clippingMessage = StrId::STR_NOT_AVAILABLE_VERTICAL;
+    showClippingMessage = true;
+    clippingMessageTime = millis();
+    requestUpdate();
     return;
   }
 
@@ -2158,6 +2161,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int y) const {
   int top, right, bottom, left;
   renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  // Clipping rectangles are horizontal word boxes; vertical columns have none.
+  if (usesVerticalLayout()) return -1;
   const int fontId = SETTINGS.getReaderFontId();
   const uint32_t signature = readerRenderSpecSignature(bookRenderSpec(buildViewportWidth, buildViewportHeight));
   uint16_t wordIndex = 0;
@@ -2189,7 +2194,8 @@ int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int
 
 void EpubReaderActivity::drawClippingHighlights(const Page& page, const int fontId, const int orientedMarginTop,
                                                 const int orientedMarginLeft) const {
-  if (!section || !CLIPPINGS.hasClippings() || section->currentPage < 0 || section->currentPage >= section->pageCount) {
+  if (!section || !CLIPPINGS.hasClippings() || section->currentPage < 0 || section->currentPage >= section->pageCount ||
+      usesVerticalLayout()) {
     return;
   }
 
@@ -2327,7 +2333,7 @@ bool EpubReaderActivity::usesVerticalLayout() const {
     case CrossPointSettings::WRITING_MODE_HORIZONTAL:
       return false;
     default:
-      return epub && epub->isPageProgressionRtl();
+      return epub && epub->isPageProgressionRtl() && VerticalText::isCjkLanguageTag(epub->getLanguage());
   }
 }
 

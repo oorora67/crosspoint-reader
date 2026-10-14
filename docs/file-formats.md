@@ -8,14 +8,13 @@ All POD fields are written in the ESP32 little-endian representation used by
 
 ### Version 11
 
-Version 11 adds a `u8 pageProgressionRtl` after `textReferenceHref`: 1 when the
-OPF spine declares `page-progression-direction="rtl"`. Writing Mode Auto uses
-it to lay a book out vertically. Older caches are rebuilt automatically.
-
-### Version 10
-
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+
+Version 11 adds a `u8 pageProgressionRtl` after `textReferenceHref`: 1 when the
+OPF spine declares `page-progression-direction="rtl"`. Writing Mode Auto uses
+it, together with a Japanese, Chinese or Korean book language, to lay a book out
+vertically. Older caches are rebuilt automatically.
 
 ImHex pattern:
 

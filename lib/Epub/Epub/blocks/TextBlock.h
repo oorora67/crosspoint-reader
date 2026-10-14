@@ -67,10 +67,11 @@ class TextBlock final : public Block {
   uint16_t numWords = 0;
   uint16_t paragraphStartWord = UINT16_MAX;  // Visual index of the paragraph's first logical word.
   uint16_t textBytes = 0;                    // total size of the text region, including NULs
-  bool focusPresent = false;
-  bool isVertical = false;
-  uint16_t verticalEm = 0;  // cell size of a vertical column
-  bool isValid = true;
+  uint16_t verticalEm = 0;                   // cell size of a vertical column (font-derived, cached for drawing)
+  // Bit-fields keep the flags in one byte; every resident line pays for this struct.
+  bool focusPresent : 1 = false;
+  bool isVertical : 1 = false;
+  bool isValid : 1 = true;
   // The ONLY allocation: makeUniqueNoThrow, so OOM yields an invalid block
   // instead of abort() (bare new is not nothrow with -fno-exceptions).
   std::unique_ptr<uint8_t[]> arena;

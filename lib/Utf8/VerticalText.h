@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 // Glyph orientation for vertical (tategaki) text. The classes follow the
 // Vertical_Orientation property of Unicode UAX #50 for the characters a
@@ -59,16 +60,12 @@ inline bool isSmallKana(const uint32_t cp) {
 }
 
 // Characters whose vertical form is the horizontal glyph turned 90 degrees
-// clockwise (UAX #50 Tr and R within the upright blocks).
+// clockwise (UAX #50 Tr and R within the upright blocks). Dashes and ellipses
+// outside those blocks are not upright and turn with the sideways run instead.
 inline bool isRotated(const uint32_t cp) {
   if (cp >= 0x3008 && cp <= 0x3011) return true;  // 〈〉《》「」『』【】
   if (cp >= 0x3014 && cp <= 0x301B) return true;  // 〔〕〖〗〘〙〚〛
-  if (cp >= 0x2010 && cp <= 0x2015) return true;  // hyphens, dashes, horizontal bar
   switch (cp) {
-    case 0x2025:  // ‥
-    case 0x2026:  // …
-    case 0x2E3A:  // two-em dash
-    case 0x2E3B:  // three-em dash
     case 0x301C:  // 〜
     case 0x3030:  // 〰
     case 0x30A0:  // ゠
@@ -116,6 +113,17 @@ inline bool isAutoCombined(const char* text, const size_t len) {
   const auto isMark = [](const char c) { return c == '!' || c == '?'; };
   if (len == 1) return isDigit(text[0]) || isLetter(text[0]) || isMark(text[0]);
   return (isDigit(text[0]) && isDigit(text[1])) || (isMark(text[0]) && isMark(text[1]));
+}
+
+// True for a Japanese, Chinese or Korean language tag ("ja", "zh-Hant", "ko_KR"). Arabic,
+// Hebrew and Persian books also declare a right-to-left page progression, so Auto writing
+// mode needs the language as well before it sets a book vertically.
+inline bool isCjkLanguageTag(const std::string_view tag) {
+  if (tag.size() < 2 || (tag.size() > 2 && tag[2] != '-' && tag[2] != '_')) return false;
+  const auto lower = [](const char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; };
+  const char first = lower(tag[0]);
+  const char second = lower(tag[1]);
+  return (first == 'j' && second == 'a') || (first == 'z' && second == 'h') || (first == 'k' && second == 'o');
 }
 
 }  // namespace VerticalText

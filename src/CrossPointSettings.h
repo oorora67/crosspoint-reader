@@ -188,8 +188,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
 
-  // EPUB writing mode. Auto sets a book vertically when its spine declares
-  // page-progression-direction="rtl" (the EPUB 3 marker of vertical Japanese books).
+  // EPUB writing mode. Auto sets a Japanese, Chinese or Korean book vertically when its
+  // spine declares page-progression-direction="rtl".
   enum WRITING_MODE {
     WRITING_MODE_AUTO = 0,
     WRITING_MODE_HORIZONTAL = 1,

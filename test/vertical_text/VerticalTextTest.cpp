@@ -62,6 +62,18 @@ TEST(VerticalTextClassification, AutoCombinesShortRuns) {
   EXPECT_FALSE(VerticalText::isAutoCombined("ab", 2));
 }
 
+TEST(VerticalTextClassification, AutoModeNeedsACjkLanguage) {
+  EXPECT_TRUE(VerticalText::isCjkLanguageTag("ja"));
+  EXPECT_TRUE(VerticalText::isCjkLanguageTag("JA-JP"));
+  EXPECT_TRUE(VerticalText::isCjkLanguageTag("zh-Hant"));
+  EXPECT_TRUE(VerticalText::isCjkLanguageTag("ko_KR"));
+  EXPECT_FALSE(VerticalText::isCjkLanguageTag("ar"));
+  EXPECT_FALSE(VerticalText::isCjkLanguageTag("he"));
+  EXPECT_FALSE(VerticalText::isCjkLanguageTag("fa-IR"));
+  EXPECT_FALSE(VerticalText::isCjkLanguageTag("jav"));
+  EXPECT_FALSE(VerticalText::isCjkLanguageTag(""));
+}
+
 TEST(VerticalLayout, ClosingPunctuationNeverStartsAColumn) {
   ParsedText text(false, false, topAligned(), 0);
   text.addWord("あいう。えお", EpdFontFamily::REGULAR);

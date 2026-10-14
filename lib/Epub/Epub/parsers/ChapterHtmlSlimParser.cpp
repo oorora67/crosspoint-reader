@@ -597,8 +597,9 @@ void ChapterHtmlSlimParser::finishTableRow() {
   const uint16_t cellWidth = static_cast<uint16_t>(viewportWidth / columnCount);
 
   // Keep enough width for a few glyphs while allowing ordinary three-column
-  // tables to remain tabular at the default font size in portrait.
-  if (columnCount < 2 || cellWidth <= TABLE_CELL_HORIZONTAL_PADDING * 2 ||
+  // tables to remain tabular at the default font size in portrait. Vertical text
+  // has no grid layout: every row becomes paragraphs.
+  if (verticalMode || columnCount < 2 || cellWidth <= TABLE_CELL_HORIZONTAL_PADDING * 2 ||
       cellWidth < lineHeight * TABLE_MIN_CELL_WIDTH_LINE_HEIGHTS) {
     fallbackTableRowToStacked();
     addTableRowSeparator();
@@ -2274,10 +2275,10 @@ void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const
 void ChapterHtmlSlimParser::addColumnToPage(std::unique_ptr<TextBlock> column, const uint32_t visibleOffset,
                                             const size_t wordsConsumed) {
   const int lineHeight = renderer.getLineHeight(fontId, lineCompression);
-  // Ruby sits right of the base text and needs half an em there; the gap between columns
-  // (line height minus em) covers part of it, the rest widens this column.
+  // The base is centred half a line height into the column and its ruby ends one em right of
+  // that centre; widen the column so the ruby stays inside it.
   const int em = std::max(1, renderer.getVerticalEm(fontId));
-  const int rubyExtra = column->hasRuby() ? std::max(0, em / 2 - (lineHeight - em)) : 0;
+  const int rubyExtra = column->hasRuby() ? std::max(0, em - lineHeight / 2) : 0;
   const int pitch = lineHeight + rubyExtra;
 
   if (!currentPage) {
