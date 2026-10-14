@@ -46,7 +46,7 @@ Check [our Devices page](https://crosspointreader.com/devices) for the full list
 
 - **Customization**: night mode, multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes including transparent overlays, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.
 
-- **Localization**: English and Japanese UI. Japanese UI text needs an SD card font with Japanese glyphs (CJK font fallback).
+- **Localization**: English and Japanese UI. The built-in UI fonts carry the Japanese UI's glyphs (BIZ UDGothic subset); other CJK text falls back to an SD card font.
 
 ### Coming soon:
 
