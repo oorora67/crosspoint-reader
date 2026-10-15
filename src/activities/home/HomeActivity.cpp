@@ -23,6 +23,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "SdCardFontSystem.h"
 #include "activities/plugins/PluginCatalogActivity.h"  // anyPluginInstalled()
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -229,6 +230,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
+
+  // Reload a system font released on the Font Download screen when that screen
+  // was left with Home, so the Settings result handler never ran.
+  if (sdFontSystem.uiReloadPending()) {
+    RenderLock lock(*this);
+    sdFontSystem.ensureLoaded(renderer);
+  }
 
   hasOpdsServers = OPDS_STORE.hasServers();
   hasPlugins = anyPluginInstalled();

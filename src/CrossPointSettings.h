@@ -346,6 +346,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t readerMenuStyle = READER_MENU_LIST;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[32] = "";
+  // System (UI) font: SD card family name (empty = built-in UI fonts)
+  char uiFontFamilyName[32] = "";
   // Dictionary folder name under /dictionaries (empty = no dictionary)
   char dictionaryName[32] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
@@ -412,6 +414,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // the only set a built-in family ships — otherwise the settings UI would keep
   // offering a size nothing renders at. Both fields are persisted in one write.
   void clearSdFontFamily();
+  // Drop the system font selection and go back to the built-in UI fonts.
+  void clearUiFontFamily();
 
   // Resolved status-bar composition. Consumers read the spec; only settings
   // editors read the raw fields.

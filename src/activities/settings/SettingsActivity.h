@@ -217,6 +217,8 @@ class SettingsActivity final : public UiTabListActivity {
   static std::string settingValueText(const SettingInfo& setting);
   void selectCategory(int categoryIndex);
   void applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr);
+  // Load the chosen system font now, so this screen repaints in it.
+  void applyUiFontChange();
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();

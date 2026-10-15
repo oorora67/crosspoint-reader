@@ -98,6 +98,46 @@ inline SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
   return s;
 }
 
+// Build the system (UI) font setting: the built-in UI fonts plus every SD family
+// that can serve as a UI font (see isUiFontCandidate). Independent of the reader
+// font; persisted as SETTINGS.uiFontFamilyName (saved manually in toJson/fromJson).
+inline SettingInfo buildUiFontSetting(const SdCardFontRegistry* registry) {
+  std::vector<std::string> familyNames;
+  if (registry) {
+    for (const auto& family : registry->getFamilies()) {
+      if (isUiFontCandidate(family)) familyNames.push_back(family.name);
+    }
+  }
+  std::vector<std::string> labels;
+  labels.reserve(familyNames.size() + 1);
+  labels.push_back(I18N.get(StrId::STR_UI_FONT_BUILTIN));
+  labels.insert(labels.end(), familyNames.begin(), familyNames.end());
+
+  SettingInfo s;
+  s.nameId = StrId::STR_UI_FONT;
+  s.type = SettingType::ENUM;
+  s.enumStringValues = std::move(labels);
+  s.key = "uiFont";
+  s.category = StrId::STR_CAT_DISPLAY;
+
+  // Index 0 is the built-in font; SD families follow.
+  s.valueGetter = [familyNames]() -> uint8_t {
+    for (size_t i = 0; i < familyNames.size(); i++) {
+      if (familyNames[i] == SETTINGS.uiFontFamilyName) return static_cast<uint8_t>(i + 1);
+    }
+    return 0;
+  };
+  s.valueSetter = [familyNames](uint8_t v) {
+    if (v == 0 || v > familyNames.size()) {
+      SETTINGS.uiFontFamilyName[0] = '\0';
+      return;
+    }
+    strncpy(SETTINGS.uiFontFamilyName, familyNames[v - 1].c_str(), sizeof(SETTINGS.uiFontFamilyName) - 1);
+    SETTINGS.uiFontFamilyName[sizeof(SETTINGS.uiFontFamilyName) - 1] = '\0';
+  };
+  return s;
+}
+
 // Build the font size setting dynamically: the options are the point sizes the
 // active family actually ships, so an SD family built at 10/12/14 offers three
 // sizes and a family built at 8..18 offers six. The selected point size persists
@@ -309,6 +349,9 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                           "refreshFrequency", StrId::STR_CAT_DISPLAY),
         SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
                           StrId::STR_CAT_DISPLAY),
+        // Placeholder: always replaced by buildUiFontSetting() below, whose
+        // options depend on the installed SD fonts.
+        SettingInfo::Enum(StrId::STR_UI_FONT, nullptr, {}, "uiFont", StrId::STR_CAT_DISPLAY),
         SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                             StrId::STR_CAT_DISPLAY),
 #if FREEINK_CAP_FRONTLIGHT
@@ -665,6 +708,12 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
     auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
     if (it != v.end()) {
       *it = buildFontFamilySetting(registry);
+    }
+  }
+  {
+    auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_UI_FONT; });
+    if (it != v.end()) {
+      *it = buildUiFontSetting(registry);
     }
   }
   {

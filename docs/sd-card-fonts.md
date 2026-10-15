@@ -146,6 +146,31 @@ What this means in practice:
   fallback and the UI again shows boxes for non-Latin text — pick an SD font
   covering that script to restore it.
 
+## System Font
+
+**Settings > Display > System Font** chooses the font for the interface
+(menus, lists, headers), separately from the reading font. "Built-in" keeps the
+built-in UI fonts. Also listed:
+
+- `.cpfont` families with files at 8, 10 or 12 pt. A UI size the family does
+  not ship stays on the built-in font.
+- Direct TTF/OTF/TTC families, on devices where CrossPoint enables external
+  RAM (see above). They render at all three UI sizes.
+
+An SD system font draws every UI string it can render, at the matching size.
+A string with a character the system font lacks but the built-in font or the
+reading font has is drawn with that font instead. So a Latin-only system font
+still shows Japanese menus with the built-in font.
+
+The reading font acts as the UI fallback described above only for scripts the
+system font does not cover. With a system font that covers them, the reading
+font never changes how the interface looks, and its UI sizes are not loaded.
+
+A change made in the web interface takes effect when the device restarts at the
+end of the file transfer session. Deleting the system font on the **Font Download**
+screen sets System Font back to "Built-in". Updating it shows the built-in font
+until you leave that screen.
+
 ## Available Pre-Built Fonts
 
 The current list of pre-built fonts is maintained in the

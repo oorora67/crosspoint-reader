@@ -259,34 +259,48 @@ void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
 }
 
 int GfxRenderer::resolveTextFontId(const int fontId, const char* text, const EpdFontFamily::Style style) const {
-  if (fallbackFontMap_.empty() || text == nullptr || *text == '\0') {
+  if (text == nullptr || *text == '\0') {
     return fontId;
   }
+  const auto ovIt = uiFontOverrideMap_.find(fontId);
   const auto fbIt = fallbackFontMap_.find(fontId);
-  if (fbIt == fallbackFontMap_.end()) {
-    return fontId;  // no fallback registered for this font
+  if (ovIt == uiFontOverrideMap_.end() && fbIt == fallbackFontMap_.end()) {
+    return fontId;  // nothing registered for this font
   }
-  const int fallbackFontId = fbIt->second;
-  const auto fontIt = fontMap.find(fontId);
-  const auto fallbackIt = fontMap.find(fallbackFontId);
-  if (fontIt == fontMap.end() || fallbackIt == fontMap.end()) {
-    return fontId;  // unknown primary or fallback not loaded — let the caller handle it
+  const auto primaryIt = fontMap.find(fontId);
+  if (primaryIt == fontMap.end()) {
+    return fontId;  // unknown primary — let the caller handle it
   }
-  const EpdFontFamily& primary = fontIt->second;
-  const EpdFontFamily& fallback = fallbackIt->second;
+  const auto findLoaded = [this](const int id) -> const EpdFontFamily* {
+    const auto it = fontMap.find(id);
+    return it == fontMap.end() ? nullptr : &it->second;
+  };
+  const EpdFontFamily& primary = primaryIt->second;
+  const EpdFontFamily* sysFont = ovIt == uiFontOverrideMap_.end() ? nullptr : findLoaded(ovIt->second);
+  const EpdFontFamily* fallback = fbIt == fallbackFontMap_.end() ? nullptr : findLoaded(fbIt->second);
+
+  // The system font takes the string unless it lacks a codepoint another font
+  // could draw. Otherwise redirect to the fallback whenever the primary cannot
+  // draw a codepoint the fallback can — Greek, Cyrillic, CJK or any script the
+  // built-in UI fonts lack. ASCII never needs the fallback (every registered
+  // font covers it), keeping Latin strings on the fast path.
+  bool useOverride = sysFont != nullptr;
+  bool useFallback = false;
   const char* cursor = text;
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
-    // Redirect whenever the primary font cannot draw a codepoint the fallback
-    // can — otherwise the string renders with holes. Not just CJK: Greek,
-    // Cyrillic, or any script the built-in UI fonts lack qualifies. ASCII is
-    // skipped outright (every registered font covers it), keeping Latin
-    // strings on the fast path, and a partial-coverage fallback is not worth
-    // dragging the whole string into for glyphs it would also miss.
-    if (cp >= 0x80 && !primary.hasCodepoint(cp, style) && fallback.hasCodepoint(cp, style)) {
-      return fallbackFontId;
+    const bool inPrimary = cp < 0x80 || primary.hasCodepoint(cp, style);
+    const bool inFallback = fallback && cp >= 0x80 && fallback->hasCodepoint(cp, style);
+    if (useOverride && !sysFont->hasCodepoint(cp, style) && (inPrimary || inFallback)) {
+      useOverride = false;
     }
+    if (!inPrimary && inFallback) {
+      useFallback = true;
+    }
+    if (!useOverride && (useFallback || fallback == nullptr)) break;
   }
+  if (useOverride) return ovIt->second;
+  if (useFallback) return fbIt->second;
   return fontId;
 }
 
@@ -295,37 +309,43 @@ void GfxRenderer::prewarmFallbackText(const int fontId, const TextGetter getter,
   if (getter == nullptr || textCount == 0) {
     return;
   }
-  // Resolve the fallback id from the first string that actually redirects; a
-  // screen with no non-Latin strings resolves nothing and this is a no-op.
-  int fallbackFontId = fontId;
-  for (uint32_t i = 0; i < textCount && fallbackFontId == fontId; i++) {
+  // Collect the fonts strings redirect to: a system font override, a fallback,
+  // or both. A screen with no redirected strings resolves nothing (no-op).
+  int targets[2] = {fontId, fontId};
+  int targetCount = 0;
+  for (uint32_t i = 0; i < textCount && targetCount < 2; i++) {
     const char* text = getter(ctx, i);
     if (text == nullptr || *text == '\0') continue;
-    fallbackFontId = resolveTextFontId(fontId, text, style);
-  }
-  if (fallbackFontId == fontId) {
-    return;
-  }
-  const auto sdIt = sdCardFonts_.find(fallbackFontId);
-  if (sdIt == sdCardFonts_.end()) {
-    return;
+    const int resolved = resolveTextFontId(fontId, text, style);
+    if (resolved != fontId && (targetCount == 0 || resolved != targets[0])) targets[targetCount++] = resolved;
   }
   const uint8_t styleMask = static_cast<uint8_t>(1u << (static_cast<uint8_t>(style) & 0x03));
-  // Append one virtual index for U+2026: truncation measures every long row
-  // as "label…", so an ellipsis missing from the batch forces a union rebuild
-  // on the first repaint.
-  struct WrapCtx {
-    TextGetter getter;
-    const void* ctx;
-    uint32_t count;
-  } wrap{getter, ctx, textCount};
-  const auto withEllipsis = [](const void* wc, uint32_t i) -> const char* {
-    const auto* w = static_cast<const WrapCtx*>(wc);
-    return i < w->count ? w->getter(w->ctx, i) : "\xe2\x80\xa6";
-  };
-  // loadKernLig=false: see ensureSdGlyphsResident below.
-  sdIt->second->prewarm(withEllipsis, &wrap, textCount + 1, styleMask, /*metadataOnly=*/false,
-                        /*loadKernLig=*/false);
+  for (int t = 0; t < targetCount; t++) {
+    const auto sdIt = sdCardFonts_.find(targets[t]);
+    if (sdIt == sdCardFonts_.end()) continue;
+    // Batch only the strings that resolve to this font. Append one virtual
+    // index for U+2026: truncation measures every long row as "label…", so an
+    // ellipsis missing from the batch forces a union rebuild on the first repaint.
+    struct WrapCtx {
+      const GfxRenderer* renderer;
+      TextGetter getter;
+      const void* ctx;
+      uint32_t count;
+      int fontId;
+      int target;
+      EpdFontFamily::Style style;
+    } wrap{this, getter, ctx, textCount, fontId, targets[t], style};
+    const auto forTarget = [](const void* wc, uint32_t i) -> const char* {
+      const auto* w = static_cast<const WrapCtx*>(wc);
+      if (i >= w->count) return "\xe2\x80\xa6";
+      const char* text = w->getter(w->ctx, i);
+      if (text == nullptr || *text == '\0') return nullptr;
+      return w->renderer->resolveTextFontId(w->fontId, text, w->style) == w->target ? text : nullptr;
+    };
+    // loadKernLig=false: see ensureSdGlyphsResident below.
+    sdIt->second->prewarm(forTarget, &wrap, textCount + 1, styleMask, /*metadataOnly=*/false,
+                          /*loadKernLig=*/false);
+  }
 }
 
 void GfxRenderer::prewarmFallbackText(const int fontId, const char* text, const EpdFontFamily::Style style) const {
@@ -346,8 +366,9 @@ void GfxRenderer::ensureSdGlyphsResident(const int fontId, const char* text, con
   }
   // SUP/SUB bits don't select a distinct .cpfont style bitstream — mask to the
   // base style. resolveStyleMask() inside prewarm folds absent styles.
-  // loadKernLig=false: redirected fallback strings (non-Latin titles,
-  // filenames) have no useful kern pairs, and the ~3KB class-table load plus
+  // loadKernLig=false: redirected UI strings (fallback titles and filenames,
+  // or every string of an SD system font) are drawn without kerning: the ~3KB
+  // class-table load plus
   // per-rebuild mini-matrix build cost heap and SD time exactly where these
   // strings live (heap-tight UI screens). The reader's PrewarmScope path keeps
   // kern; a kern-wanting request that subset-hits a kern-free mini tops the

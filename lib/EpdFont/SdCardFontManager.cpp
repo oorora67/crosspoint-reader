@@ -15,9 +15,9 @@ SdCardFontManager::~SdCardFontManager() {
 // FNV-1a continuation: seeds with contentHash, then hashes family name + point size.
 // Produces a deterministic ID that is stable across load/unload cycles and reboots,
 // and changes when font content changes (different header/TOC = different contentHash).
-int SdCardFontManager::computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize) {
+int SdCardFontManager::computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize) const {
   static constexpr uint32_t FNV_PRIME = 16777619u;
-  uint32_t hash = contentHash;
+  uint32_t hash = contentHash ^ idSalt_;
   while (*familyName) {
     hash ^= static_cast<uint8_t>(*familyName++);
     hash *= FNV_PRIME;
@@ -95,9 +95,8 @@ int SdCardFontManager::loadFamilyExtraSize(const SdCardFontFamilyInfo& family, G
 }
 
 void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
-  // Drop UI CJK fallbacks before the SD fonts they point at are freed.
-  renderer.clearFallbackFonts();
-  renderer.clearSdCardFonts();
+  // Callers drop UI fallbacks pointing at these fonts first (SdCardFontSystem).
+  // removeFont() also drops each SD registration; fonts of another manager stay.
   for (auto& lf : loaded_) {
     renderer.removeFont(lf.fontId);
     delete lf.font;

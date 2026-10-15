@@ -149,6 +149,10 @@ FontInstaller::Error FontInstaller::deleteFamily(const char* familyName) {
     SETTINGS.clearSdFontFamily();
     LOG_DBG("FONT", "Cleared active SD font (deleted family: %s)", familyName);
   }
+  if (strcmp(SETTINGS.uiFontFamilyName, familyName) == 0) {
+    SETTINGS.clearUiFontFamily();
+    LOG_DBG("FONT", "Cleared system font (deleted family: %s)", familyName);
+  }
 
   return Error::OK;
 }

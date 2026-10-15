@@ -550,6 +550,13 @@ void FontDownloadActivity::downloadFamily(ManifestFamily& family) {
     return;
   }
 
+  {
+    // The files are about to be overwritten; the system font must not keep
+    // reading them. SettingsActivity reloads it when this screen closes.
+    RenderLock lock(*this);
+    sdFontSystem.releaseUiFont(str(family.name), renderer);
+  }
+
   if (!fontInstaller_.ensureFamilyDir(str(family.name))) {
     RenderLock lock(*this);
     state_ = ERROR;
@@ -695,6 +702,10 @@ void FontDownloadActivity::onDeleteConfirmationResult(const ActivityResult& resu
   }
   auto& family = families_[familyIndex];
 
+  {
+    RenderLock lock(*this);
+    sdFontSystem.releaseUiFont(str(family.name), renderer);
+  }
   if (fontInstaller_.deleteFamily(str(family.name)) != FontInstaller::Error::OK) {
     RenderLock lock(*this);
     state_ = ERROR;

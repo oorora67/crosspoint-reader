@@ -97,6 +97,10 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
   }
+  // System font family name — dynamic getter/setter in SettingsList, save manually
+  if (uiFontFamilyName[0] != '\0') {
+    doc["uiFontFamilyName"] = uiFontFamilyName;
+  }
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -262,6 +266,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   } else if (storedFontFamily >= BUILTIN_FONT_COUNT) {
     needsResave = true;
   }
+  copyToField(uiFontFamilyName, doc["uiFontFamilyName"] | "", sizeof(uiFontFamilyName));
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, load manually
   copyToField(dictionaryName, doc["dictionaryName"] | "", sizeof(dictionaryName));
   // Language -- stored as code string for stability across enum reorders.
@@ -399,6 +404,11 @@ void CrossPointSettings::clearSdFontFamily() {
   sdFontFamilyName[0] = '\0';
   fontPointSize =
       snapToNearestPointSize(BUILTIN_READER_POINT_SIZES, std::size(BUILTIN_READER_POINT_SIZES), fontPointSize);
+  saveToFile();
+}
+
+void CrossPointSettings::clearUiFontFamily() {
+  uiFontFamilyName[0] = '\0';
   saveToFile();
 }
 

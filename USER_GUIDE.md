@@ -256,6 +256,8 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "RoundedRaff" - A rounded theme with additional visual styling
 
+- **System Font**: Font for menus, lists and headers, set separately from the reading font. "Built-in" (default) uses the built-in UI fonts; SD card fonts are also listed: `.cpfont` families that ship 8, 10 or 12 pt files, and direct TTF/OTF/TTC fonts on boards that support them (see [System Font](docs/sd-card-fonts.md#system-font)).
+
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   
   - "OFF" (default) - Disable the fix
@@ -600,7 +602,7 @@ There are three ways to install fonts:
 2. **Upload via web interface:** While in **File Transfer** mode, open the web UI and use the **Fonts** tab to upload `.cpfont` files. The Fonts tab does not accept TTF/OTF/TTC files.
 3. **Manual SD card copy:** Copy `.cpfont` families from the [crosspoint-fonts repository](https://github.com/crosspoint-reader/crosspoint-fonts) to `/.fonts/` or `/fonts/`. If your device have external RAM, you can also copy TTF/OTF/TTC files there without conversion.
 
-Once installed, custom fonts appear in **Settings → Reader → Font Family** alongside the built-in fonts.
+Once installed, custom fonts appear in **Settings → Reader → Font Family** alongside the built-in fonts. Fonts with UI sizes, and direct TTF/OTF/TTC fonts, can also be chosen under **Settings → Display → System Font**.
 
 See [docs/sd-card-fonts.md](./docs/sd-card-fonts.md) for full installation details and SD card folder structure.
 
