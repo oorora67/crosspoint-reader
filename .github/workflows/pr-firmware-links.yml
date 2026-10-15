@@ -60,14 +60,15 @@ jobs:
               return;
             }
 
+            // CI uploads librora-os_<device>_<time>.bin; match on the device prefix.
             const builds = [
-              { name: 'firmware.bin', device: 'X3 / X4' },
-              { name: 'firmware-sticky.bin', device: 'Sticky' },
-              { name: 'firmware-x4pro.bin', device: 'X4 Pro' },
-              { name: 'firmware-x4c.bin', device: 'X4 Classic' },
-              { name: 'firmware-papermono.bin', device: 'Paper Mono' },
-              { name: 'firmware-metalio_eink4.bin', device: 'MetalIO EInk4' },
-              { name: 'firmware-eego_a4.bin', device: 'EEGO A4' },
+              { prefix: 'librora-os_x3-x4_', device: 'X3 / X4' },
+              { prefix: 'librora-os_sticky_', device: 'Sticky' },
+              { prefix: 'librora-os_x4pro_', device: 'X4 Pro' },
+              { prefix: 'librora-os_x4c_', device: 'X4 Classic' },
+              { prefix: 'librora-os_papermono_', device: 'Paper Mono' },
+              { prefix: 'librora-os_metalio-eink4_', device: 'MetalIO EInk4' },
+              { prefix: 'librora-os_eego-a4_', device: 'EEGO A4' },
             ];
             const { data: artifactResponse } =
               await github.rest.actions.listWorkflowRunArtifacts({
@@ -76,24 +77,24 @@ jobs:
                 run_id: run.id,
                 per_page: 100,
               });
-            const artifacts = new Map(
-              artifactResponse.artifacts
-                .filter((artifact) => !artifact.expired)
-                .map((artifact) => [artifact.name, artifact]),
-            );
-            const missingBuilds = builds.filter((build) => !artifacts.has(build.name));
+            const live = artifactResponse.artifacts.filter((artifact) => !artifact.expired);
+            for (const build of builds) {
+              build.artifact = live.find(
+                (artifact) => artifact.name.startsWith(build.prefix) && artifact.name.endsWith('.bin'),
+              );
+            }
+            const missingBuilds = builds.filter((build) => !build.artifact);
             const shortSha = run.head_sha.slice(0, 7);
             let body = `${marker}\n### Firmware builds\n\n`;
 
             if (missingBuilds.length === 0) {
-              const links = builds.map(({ name, device }) => {
-                const artifact = artifacts.get(name);
+              const links = builds.map(({ artifact, device }) => {
                 const url = `https://github.com/${owner}/${repo}/actions/runs/${run.id}/artifacts/${artifact.id}`;
-                return `- [${device} (\`${name}\`)](${url})`;
+                return `- [${device} (\`${artifact.name}\`)](${url})`;
               });
               body += `Automatically generated for the latest commit of this PR (\`${shortSha}\`).\n\n`;
               body += `${links.join('\n')}\n\n`;
-              body += 'Download the file for your device, extract the `.bin` from the ZIP, then flash it with ';
+              body += 'Download the `.bin` for your device, then flash it with ';
               body += '[CrossPoint Reader Flash Tools](https://crosspointreader.com/#flash-tools). ';
               body += '**Make sure you use the correct firmware file for your device.**';
 
@@ -101,7 +102,7 @@ jobs:
                 body += `\n\n> The firmware builds succeeded, but [another CI check finished with ${run.conclusion}](${run.html_url}).`;
               }
             } else {
-              const missingNames = missingBuilds.map(({ name }) => `\`${name}\``).join(', ');
+              const missingNames = missingBuilds.map(({ prefix }) => `\`${prefix}*.bin\``).join(', ');
               body += `Firmware is not available for the latest commit of this PR (\`${shortSha}\`). `;
               body += `The build did not produce ${missingNames}. [View the CI run](${run.html_url}).`;
             }

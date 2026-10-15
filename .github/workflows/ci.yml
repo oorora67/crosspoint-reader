@@ -83,23 +83,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Short board-specific names keep pull-request artifacts easy to identify.
+        # Artifacts are uploaded unzipped as librora-os_<device>_<commit time JST>.bin.
         # The release workflow applies the published crosspoint-<version>-<device>.bin names.
         include:
           - env: default
-            asset: firmware.bin
+            device: x3-x4
           - env: sticky
-            asset: firmware-sticky.bin
+            device: sticky
           - env: x4pro
-            asset: firmware-x4pro.bin
+            device: x4pro
           - env: x4c
-            asset: firmware-x4c.bin
+            device: x4c
           - env: papermono
-            asset: firmware-papermono.bin
+            device: papermono
           - env: metalio_eink4
-            asset: firmware-metalio_eink4.bin
+            device: metalio-eink4
           - env: eego_a4
-            asset: firmware-eego_a4.bin
+            device: eego-a4
     steps:
       - uses: actions/checkout@v6
         with:
@@ -166,11 +166,23 @@ jobs:
             if [ -n "$flash_line" ]; then echo "- ${flash_line}"; else echo "- Flash: not found"; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Name firmware file
+        id: firmware
+        run: |
+          set -euo pipefail
+          # Commit time, so every board of one run shares the same stamp.
+          stamp="$(TZ=Asia/Tokyo git log -1 --format=%cd --date=format-local:%Y%m%d-%H%M)"
+          name="librora-os_${{ matrix.device }}_${stamp}.bin"
+          mkdir -p dist
+          cp ".pio/build/${{ matrix.env }}/firmware.bin" "dist/${name}"
+          echo "path=dist/${name}" >> "$GITHUB_OUTPUT"
+
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.asset }}
-          path: .pio/build/${{ matrix.env }}/firmware.bin
+          # Unzipped: the artifact is the .bin itself, named after the file.
+          path: ${{ steps.firmware.outputs.path }}
+          archive: false
           if-no-files-found: error
 
   unit-tests:
