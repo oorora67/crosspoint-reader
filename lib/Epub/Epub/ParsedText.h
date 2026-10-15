@@ -133,6 +133,8 @@ class ParsedText {
   int verticalGapBefore(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex) const;
   int verticalRubyLength(int em, size_t wordIndex) const;
   int verticalFirstColumnIndent(const GfxRenderer& renderer, int fontId, int em) const;
+  int verticalColumnStart(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex,
+                          bool firstOfParagraph) const;
   bool extractColumn(size_t first, size_t last, int columnLength, int em, bool isLastColumn,
                      const std::function<void(std::unique_ptr<TextBlock>, uint32_t, size_t)>& processColumn,
                      const GfxRenderer& renderer, int fontId);

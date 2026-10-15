@@ -185,3 +185,29 @@ TEST(HorizontalLayout, TrimsPunctuationAcrossTokens) {
   // Each stub glyph is 8 px; 」 gives up 4 px before 「.
   EXPECT_EQ(xpos, (std::vector<int16_t>{0, 12}));
 }
+
+TEST(VerticalLayout, WrappedColumnStartsWithBracketInk) {
+  ParsedText text(false, false, topAligned(), 0);
+  text.addWord("あいう「えお", EpdFontFamily::REGULAR);
+  const auto columns = layout(text, 48);
+  ASSERT_EQ(columns.size(), 2u);
+  EXPECT_EQ(columns[1].cells, (std::vector<std::string>{"「", "え", "お"}));
+  // The blank top half of 「 rises above the column start (JLREQ tenzuki).
+  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{-8, 8, 24}));
+  const auto plain = [] {
+    ParsedText off(false, false, topAligned(), 0);
+    off.addWord("あいう「えお", EpdFontFamily::REGULAR);
+    return layout(off, 48, /*kerning=*/false);
+  }();
+  ASSERT_EQ(plain.size(), 2u);
+  EXPECT_EQ(plain[1].offsets, (std::vector<int16_t>{0, 16, 32}));
+}
+
+TEST(VerticalLayout, UprightMarksDoNotTrim) {
+  // 〝 stays upright and centred in vertical text, so it keeps its full cell.
+  ParsedText text(false, false, topAligned(), 0);
+  text.addWord("あいう〝えお", EpdFontFamily::REGULAR);
+  const auto columns = layout(text, 48);
+  ASSERT_EQ(columns.size(), 2u);
+  EXPECT_EQ(columns[1].offsets.front(), 0);
+}

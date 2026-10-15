@@ -96,6 +96,13 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 58
+
+The format is unchanged. Vertical layout changed: with kerning on, a paragraph
+that opens with a bracket drops its indent, a wrapped column starts with the
+bracket's ink at the top, and columns are justified only when the extra space
+per gap stays small. Older section caches are rebuilt automatically.
+
 ### Version 57
 
 The header adds `bool kerning` after `verticalMode`; it participates in cache
@@ -256,7 +263,7 @@ superscript, and subscript. The format also includes:
   on-disk order mirrors the in-RAM arena so the firmware reads a whole block
   payload with a single allocation and a single SD read
 
-ImHex pattern (describes version 50; versions 51 to 57 are not covered, see
+ImHex pattern (describes version 50; versions 51 to 58 are not covered, see
 the version notes above):
 
 ```c++

@@ -45,6 +45,18 @@ bool joinsPrevious(const uint32_t cp) {
          cp == 0x3099 || cp == 0x309A;
 }
 
+// Punctuation cells whose ink sits in one half of the cell: rotated brackets and the
+// corner-set comma and full stop. Other trimmable marks (〝〟) stay upright and centred,
+// so trimming them would overlap their neighbours.
+bool trimsVertically(const uint32_t cp) {
+  const auto kind = VerticalText::uprightKind(cp);
+  return kind == VerticalText::CellKind::Rotated || kind == VerticalText::CellKind::Corner;
+}
+
+bool trimsHalfBetweenVertically(const uint32_t left, const uint32_t right) {
+  return PunctuationSpacing::trimsHalfBetween(left, right) && trimsVertically(left) && trimsVertically(right);
+}
+
 uint32_t lastCodepointOf(const std::string_view text) {
   size_t i = text.size();
   while (i > 0 && (static_cast<uint8_t>(text[i - 1]) & 0xC0) == 0x80) --i;
@@ -94,7 +106,7 @@ void ParsedText::forEachVerticalCell(const GfxRenderer& renderer, const int font
     const std::string_view text(reinterpret_cast<const char*>(cellStart), cellEnd - cellStart);
     const uint32_t trimCp = cellIsRun ? 0 : cellCp;
     const auto trim =
-        static_cast<uint16_t>(kerning && PunctuationSpacing::trimsHalfBetween(prevTrimCp, trimCp) ? prevLength / 2 : 0);
+        static_cast<uint16_t>(kerning && trimsHalfBetweenVertically(prevTrimCp, trimCp) ? prevLength / 2 : 0);
     VerticalCell cell;
     if (!cellIsRun) {
       cell = VerticalCell{text, VerticalText::uprightKind(cellCp), cellEm, cellCodepoints, trim};
@@ -158,7 +170,7 @@ int ParsedText::verticalGapBefore(const GfxRenderer& renderer, const int fontId,
   const auto* p = reinterpret_cast<const unsigned char*>(wordAt(wordIndex).data());
   const uint32_t right = wordAt(wordIndex).empty() ? 0 : utf8NextCodepoint(&p);
   // Every trimmed mark is an upright cell of its own.
-  if (!PunctuationSpacing::trimsHalfBetween(left, right)) return 0;
+  if (!trimsHalfBetweenVertically(left, right)) return 0;
   const int leftCell = isHalfSize(getWordStyleAt(wordIndex - 1)) ? std::max(1, em / 2) : em;
   return -(leftCell / 2);
 }
@@ -209,7 +221,7 @@ void ParsedText::layoutVerticalColumns(
   std::vector<size_t> columnEnds;
   size_t start = 0;
   while (start < wordCount) {
-    int pos = (start == 0 && !firstLineConsumed) ? verticalFirstColumnIndent(renderer, fontId, em) : 0;
+    int pos = verticalColumnStart(renderer, fontId, em, start, start == 0 && !firstLineConsumed);
     size_t lastBreak = start;
     size_t i = start;
     for (; i < wordCount; ++i) {
@@ -249,6 +261,26 @@ int ParsedText::verticalFirstColumnIndent(const GfxRenderer& renderer, const int
   return em;
 }
 
+// Where a column's first cell starts. With kerning on, an opening bracket at the head of a
+// column follows JLREQ's common setting: a paragraph that opens with one drops its indent
+// (the bracket's blank half leaves it half an em down), and a wrapped column starts with
+// the bracket's ink at the top.
+int ParsedText::verticalColumnStart(const GfxRenderer& renderer, const int fontId, const int em, const size_t wordIndex,
+                                    const bool firstOfParagraph) const {
+  uint32_t head = 0;
+  if (wordIndex < words.size() && renderer.isKerningEnabled()) {
+    const std::string_view word = wordAt(wordIndex);
+    const auto* p = reinterpret_cast<const unsigned char*>(word.data());
+    if (!word.empty()) head = utf8NextCodepoint(&p);
+  }
+  if (!PunctuationSpacing::isOpening(head) || !trimsVertically(head)) {
+    return firstOfParagraph ? verticalFirstColumnIndent(renderer, fontId, em) : 0;
+  }
+  if (firstOfParagraph) return 0;
+  const int cell = isHalfSize(getWordStyleAt(wordIndex)) ? std::max(1, em / 2) : em;
+  return -(cell / 2);
+}
+
 bool ParsedText::extractColumn(const size_t first, const size_t last, const int columnLength, const int em,
                                const bool isLastColumn,
                                const std::function<void(std::unique_ptr<TextBlock>, uint32_t, size_t)>& processColumn,
@@ -283,7 +315,7 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
   int groupCellIndex = 0;
   int groupPadDone = 0;
 
-  int pos = firstOfParagraph ? verticalFirstColumnIndent(renderer, fontId, em) : 0;
+  int pos = verticalColumnStart(renderer, fontId, em, first, firstOfParagraph);
   for (size_t i = first; i < last; ++i) {
     if (i > first) pos += verticalGapBefore(renderer, fontId, em, i);
 
@@ -368,9 +400,10 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
         shift = spare;
         break;
       case CssTextAlign::Justify:
-        // Spread the leftover between characters, unless the column ends early so far that
-        // the text would look gapped (a long unbreakable word moved to the next column).
-        if (!isLastColumn && cellCount > 1 && spare / (cellCount - 1) <= em / 2) {
+        // Spread the leftover between characters, unless that would visibly open up the
+        // spacing (a column cut short by kinsoku, a long sideways word or a ruby group):
+        // such a column keeps the regular pitch and ends early instead.
+        if (!isLastColumn && cellCount > 1 && spare / (cellCount - 1) <= em / 8) {
           for (int k = 1; k < cellCount; ++k) {
             cellOffsets[k] = static_cast<int16_t>(cellOffsets[k] + spare * k / (cellCount - 1));
           }

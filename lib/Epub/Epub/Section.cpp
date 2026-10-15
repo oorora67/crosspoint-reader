@@ -67,7 +67,8 @@ namespace {
 // v56: Vertical writing: header records the writing mode; TextBlock flags carry vertical columns
 //      with per-cell kinds; horizontal rules record their orientation.
 // v57: Header records the kerning setting (pair kerning and punctuation trimming).
-constexpr uint8_t SECTION_FILE_VERSION = 57;
+// v58: Vertical columns set a head opening bracket per JLREQ and justify less eagerly.
+constexpr uint8_t SECTION_FILE_VERSION = 58;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

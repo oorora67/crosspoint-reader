@@ -375,7 +375,9 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       while (groupLast + 1 < numWords && (wordStyle(groupLast + 1) & EpdFontFamily::RUBY_CONTINUE) != 0) {
         groupLast++;
       }
-      const int groupLength = xposArr[groupLast] + cellLength(renderer, fontId, groupLast) - xposArr[i];
+      // A head bracket may start above the column (negative offset); ruby stays inside it.
+      const int groupTop = std::max(top, y);
+      const int groupLength = y + xposArr[groupLast] + cellLength(renderer, fontId, groupLast) - groupTop;
       const char* ruby = rubyTexts[i].c_str();
       int count = 0;
       for (const char* p = ruby; *p; ++p) {
@@ -383,11 +385,11 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       }
       const int rubyLength = count * rubyEm;
       // Ruby shorter than a multi-character base is spread over it 1:2:1; otherwise centred.
-      int pos = top + (groupLength - rubyLength) / 2;
+      int pos = groupTop + (groupLength - rubyLength) / 2;
       int step = rubyEm;
       if (count > 1 && rubyLength < groupLength && groupLast > i) {
         const int unit = (groupLength - rubyLength) / (2 * count);
-        pos = top + unit;
+        pos = groupTop + unit;
         step = rubyEm + 2 * unit;
       }
       const int rubyCenter = centerX + em / 2 + rubyEm / 2;
@@ -415,12 +417,13 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     const bool continues = i + 1 < numWords && (wordStyle(i + 1) & EpdFontFamily::TEXT_DECORATION_MASK) ==
                                                    (style & EpdFontFamily::TEXT_DECORATION_MASK);
     const int bottom = continues ? y + xposArr[i + 1] : top + cellLength(renderer, fontId, i);
+    const int lineTop = std::max(top, y);  // a head bracket's blank half lies above the column
     if ((style & EpdFontFamily::UNDERLINE) != 0) {
       const int lineX = centerX + em / 2 + 1;
-      renderer.drawLine(lineX, top, lineX, bottom, 2, true);
+      renderer.drawLine(lineX, lineTop, lineX, bottom, 2, true);
     }
     if ((style & EpdFontFamily::STRIKETHROUGH) != 0) {
-      renderer.drawLine(centerX, top, centerX, bottom, 2, true);
+      renderer.drawLine(centerX, lineTop, centerX, bottom, 2, true);
     }
   }
 }
