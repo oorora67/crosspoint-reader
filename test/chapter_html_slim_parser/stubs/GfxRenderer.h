@@ -57,6 +57,9 @@ class GfxRenderer {
   // Punctuation trimming: half of the 8 px glyph when kerning is on.
   bool kerningEnabled = true;
   bool isKerningEnabled() const { return kerningEnabled; }
+  int getVerticalCellLength(int, VerticalText::CellKind kind, uint32_t cp, int em, EpdFontFamily::Style) const {
+    return kerningEnabled ? VerticalText::tightCellLength(kind, cp, em) : em;
+  }
   int getPunctuationTrim(int, uint32_t left, uint32_t right, EpdFontFamily::Style) const {
     return kerningEnabled && PunctuationSpacing::trimsHalfBetween(left, right) ? 4 : 0;
   }

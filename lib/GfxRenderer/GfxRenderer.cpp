@@ -2172,6 +2172,20 @@ int GfxRenderer::getPunctuationTrim(const int fontId, const uint32_t leftCp, con
   return getTextAdvanceX(fontId, buf, style) / 2;
 }
 
+int GfxRenderer::getVerticalCellLength(const int fontId, const VerticalText::CellKind kind, const uint32_t cp,
+                                       const int em, const EpdFontFamily::Style style) const {
+  if (!kerningEnabled_) return em;
+  const int tight = VerticalText::tightCellLength(kind, cp, em);
+  if (tight == em) return em;
+  // Tight marks and small kana lie in U+3001..U+FF60: three UTF-8 bytes. A missing glyph
+  // draws as a full-em replacement box, so it keeps a full cell.
+  const char buf[4] = {static_cast<char>(0xE0 | (cp >> 12)), static_cast<char>(0x80 | ((cp >> 6) & 0x3F)),
+                       static_cast<char>(0x80 | (cp & 0x3F)), '\0'};
+  const auto fontIt = fontMap.find(resolveTextFontId(fontId, buf, style));
+  if (fontIt == fontMap.end() || !fontIt->second.hasCodepoint(cp, style)) return em;
+  return tight;
+}
+
 int32_t GfxRenderer::pairAdjustFP(const EpdFontFamily& font, const uint32_t prevCp, const uint32_t cp,
                                   const EpdFontFamily::Style style, const int32_t prevAdvanceFP) const {
   if (!kerningEnabled_) return 0;
@@ -2449,6 +2463,15 @@ void GfxRenderer::drawVerticalCell(const int fontId, const int centerX, const in
       if (kind == VerticalText::CellKind::SmallKana) {
         x += em / 8;
         drawBaseline -= em / 8;
+        // With kerning the cell is 3/4 em long (VerticalText::tightCellLength): centre the ink in it.
+        const char* cursor = text;
+        const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor));
+        if (kerningEnabled_ && !half && font.hasCodepoint(cp, style)) {
+          EpdGlyph solidFallback;
+          if (const EpdGlyph* glyph = font.getGlyphMetrics(cp, solidFallback, style)) {
+            drawBaseline = top + (em - em / 4) / 2 + glyph->top - glyph->height / 2;
+          }
+        }
       }
       drawText(resolvedFontId, x, drawBaseline - getFontAscenderSize(resolvedFontId), text, black, drawStyle);
       return;
@@ -2483,6 +2506,15 @@ void GfxRenderer::drawVerticalCell(const int fontId, const int centerX, const in
       }
       const char* cursor = text;
       int penY = top;
+      // With kerning an opening bracket has a half cell (VerticalText::tightCellLength): its
+      // ink sits in the bottom half of the em box, so the box starts half an em above the cell.
+      if (kerningEnabled_ && kind == VerticalText::CellKind::Rotated) {
+        const char* first = text;
+        const uint32_t head = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&first));
+        if (PunctuationSpacing::isOpening(head) && font.hasCodepoint(head, style)) {
+          penY -= em / 2;
+        }
+      }
       int32_t prevAdvanceFP = 0;
       uint32_t prevCp = 0;
       uint32_t cp;

@@ -96,6 +96,13 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 59
+
+The format is unchanged. Vertical layout changed: with kerning on, commas, full
+stops and brackets take half a cell and small kana three quarters of a cell, so
+the blank space around them is removed. A paragraph that opens with a bracket is
+indented by half a cell. Older section caches are rebuilt automatically.
+
 ### Version 58
 
 The format is unchanged. Vertical layout changed: with kerning on, a paragraph
@@ -263,7 +270,7 @@ superscript, and subscript. The format also includes:
   on-disk order mirrors the in-RAM arena so the firmware reads a whole block
   payload with a single allocation and a single SD read
 
-ImHex pattern (describes version 50; versions 51 to 58 are not covered, see
+ImHex pattern (describes version 50; versions 51 to 59 are not covered, see
 the version notes above):
 
 ```c++

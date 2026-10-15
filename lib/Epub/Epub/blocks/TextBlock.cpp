@@ -345,7 +345,9 @@ int TextBlock::cellLength(const GfxRenderer& renderer, const int fontId, const u
     return renderer.getTextAdvanceX(fontId, wordText(i), style);
   }
   const bool half = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
-  return half ? verticalEm / 2 : verticalEm;
+  const int cellEm = half ? verticalEm / 2 : verticalEm;
+  const auto* p = reinterpret_cast<const unsigned char*>(wordText(i));
+  return renderer.getVerticalCellLength(fontId, cellKind(i), utf8NextCodepoint(&p), cellEm, style);
 }
 
 // One column: x is its centre line, y its top. Ruby goes on the right of the base text
@@ -375,9 +377,7 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       while (groupLast + 1 < numWords && (wordStyle(groupLast + 1) & EpdFontFamily::RUBY_CONTINUE) != 0) {
         groupLast++;
       }
-      // A head bracket may start above the column (negative offset); ruby stays inside it.
-      const int groupTop = std::max(top, y);
-      const int groupLength = y + xposArr[groupLast] + cellLength(renderer, fontId, groupLast) - groupTop;
+      const int groupLength = xposArr[groupLast] + cellLength(renderer, fontId, groupLast) - xposArr[i];
       const char* ruby = rubyTexts[i].c_str();
       int count = 0;
       for (const char* p = ruby; *p; ++p) {
@@ -385,11 +385,11 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       }
       const int rubyLength = count * rubyEm;
       // Ruby shorter than a multi-character base is spread over it 1:2:1; otherwise centred.
-      int pos = groupTop + (groupLength - rubyLength) / 2;
+      int pos = top + (groupLength - rubyLength) / 2;
       int step = rubyEm;
       if (count > 1 && rubyLength < groupLength && groupLast > i) {
         const int unit = (groupLength - rubyLength) / (2 * count);
-        pos = groupTop + unit;
+        pos = top + unit;
         step = rubyEm + 2 * unit;
       }
       const int rubyCenter = centerX + em / 2 + rubyEm / 2;
@@ -404,7 +404,11 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         buf[len] = '\0';
         const auto kind =
             VerticalText::isUpright(cp) ? VerticalText::uprightKind(cp) : VerticalText::CellKind::Combined;
-        renderer.drawVerticalCell(fontId, rubyCenter, pos, rubyEm, buf, kind, EpdFontFamily::SUP);
+        // Ruby keeps full cells, so undo the half-cell lift drawVerticalCell gives an opening bracket.
+        const bool lifted = kind == VerticalText::CellKind::Rotated && PunctuationSpacing::isOpening(cp) &&
+                            renderer.getVerticalCellLength(fontId, kind, cp, rubyEm, EpdFontFamily::SUP) < rubyEm;
+        renderer.drawVerticalCell(fontId, rubyCenter, lifted ? pos + rubyEm / 2 : pos, rubyEm, buf, kind,
+                                  EpdFontFamily::SUP);
         pos += step;
       }
     }
@@ -417,13 +421,12 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     const bool continues = i + 1 < numWords && (wordStyle(i + 1) & EpdFontFamily::TEXT_DECORATION_MASK) ==
                                                    (style & EpdFontFamily::TEXT_DECORATION_MASK);
     const int bottom = continues ? y + xposArr[i + 1] : top + cellLength(renderer, fontId, i);
-    const int lineTop = std::max(top, y);  // a head bracket's blank half lies above the column
     if ((style & EpdFontFamily::UNDERLINE) != 0) {
       const int lineX = centerX + em / 2 + 1;
-      renderer.drawLine(lineX, lineTop, lineX, bottom, 2, true);
+      renderer.drawLine(lineX, top, lineX, bottom, 2, true);
     }
     if ((style & EpdFontFamily::STRIKETHROUGH) != 0) {
-      renderer.drawLine(centerX, lineTop, centerX, bottom, 2, true);
+      renderer.drawLine(centerX, top, centerX, bottom, 2, true);
     }
   }
 }

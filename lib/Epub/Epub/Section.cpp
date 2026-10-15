@@ -68,7 +68,8 @@ namespace {
 //      with per-cell kinds; horizontal rules record their orientation.
 // v57: Header records the kerning setting (pair kerning and punctuation trimming).
 // v58: Vertical columns set a head opening bracket per JLREQ and justify less eagerly.
-constexpr uint8_t SECTION_FILE_VERSION = 58;
+// v59: With kerning, vertical punctuation takes half cells and small kana 3/4 cells.
+constexpr uint8_t SECTION_FILE_VERSION = 59;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

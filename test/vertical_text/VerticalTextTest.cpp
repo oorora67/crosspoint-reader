@@ -84,7 +84,8 @@ TEST(VerticalLayout, ClosingPunctuationNeverStartsAColumn) {
   ASSERT_EQ(columns.size(), 3u);
   EXPECT_EQ(columns[0].cells, (std::vector<std::string>{"あ", "い"}));
   EXPECT_EQ(columns[1].cells, (std::vector<std::string>{"う", "。", "え"}));
-  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{0, 16, 32}));
+  // With kerning 。 takes half a cell.
+  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{0, 16, 24}));
   EXPECT_EQ(columns[1].kinds[1], CellKind::Corner);
   EXPECT_EQ(columns[2].cells, (std::vector<std::string>{"お"}));
 }
@@ -129,7 +130,7 @@ TEST(VerticalLayout, JustifiedColumnsFillTheirLength) {
   style.alignment = CssTextAlign::Justify;
   ParsedText text(false, false, style, 0);
   text.addWord("あいう。えお", EpdFontFamily::REGULAR);
-  const auto columns = layout(text, 52);
+  const auto columns = layout(text, 52, /*kerning=*/false);
   ASSERT_EQ(columns.size(), 3u);
   // あい leaves 20 px, more than half an em per gap, so it stays top-aligned; う。え spreads 4 px.
   EXPECT_EQ(columns[0].offsets, (std::vector<int16_t>{0, 16}));
@@ -149,14 +150,29 @@ TEST(PunctuationSpacing, TrimsAdjacentFullwidthMarks) {
   EXPECT_FALSE(trimsHalfBetween(0, 0x300C));
 }
 
-TEST(VerticalLayout, TrimsAdjacentPunctuation) {
+TEST(VerticalLayout, SetsPunctuationInHalfCells) {
   ParsedText text(false, false, topAligned(), 0);
   text.addWord("あ。」「い", EpdFontFamily::REGULAR);
   const auto columns = layout(text, 160);
   ASSERT_EQ(columns.size(), 1u);
   EXPECT_EQ(columns[0].cells, (std::vector<std::string>{"あ", "。", "」", "「", "い"}));
-  // 。」 inside one token and 」「 across tokens each give up half of the 16 px em.
-  EXPECT_EQ(columns[0].offsets, (std::vector<int16_t>{0, 16, 24, 32, 48}));
+  // 。」「 each take half of the 16 px em, so い follows 「 without a blank half.
+  EXPECT_EQ(columns[0].offsets, (std::vector<int16_t>{0, 16, 24, 32, 40}));
+}
+
+TEST(VerticalLayout, SetsSmallKanaInThreeQuarterCells) {
+  ParsedText text(false, false, topAligned(), 0);
+  text.addWord("きゃく", EpdFontFamily::REGULAR);
+  const auto columns = layout(text, 160);
+  ASSERT_EQ(columns.size(), 1u);
+  EXPECT_EQ(columns[0].offsets, (std::vector<int16_t>{0, 16, 28}));
+  const auto plain = [] {
+    ParsedText off(false, false, topAligned(), 0);
+    off.addWord("きゃく", EpdFontFamily::REGULAR);
+    return layout(off, 160, /*kerning=*/false);
+  }();
+  ASSERT_EQ(plain.size(), 1u);
+  EXPECT_EQ(plain[0].offsets, (std::vector<int16_t>{0, 16, 32}));
 }
 
 TEST(VerticalLayout, KerningOffKeepsFullCells) {
@@ -192,8 +208,8 @@ TEST(VerticalLayout, WrappedColumnStartsWithBracketInk) {
   const auto columns = layout(text, 48);
   ASSERT_EQ(columns.size(), 2u);
   EXPECT_EQ(columns[1].cells, (std::vector<std::string>{"「", "え", "お"}));
-  // The blank top half of 「 rises above the column start (JLREQ tenzuki).
-  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{-8, 8, 24}));
+  // 「 takes a half cell, its ink at the column start (JLREQ tenzuki).
+  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{0, 8, 24}));
   const auto plain = [] {
     ParsedText off(false, false, topAligned(), 0);
     off.addWord("あいう「えお", EpdFontFamily::REGULAR);
@@ -203,11 +219,11 @@ TEST(VerticalLayout, WrappedColumnStartsWithBracketInk) {
   EXPECT_EQ(plain[1].offsets, (std::vector<int16_t>{0, 16, 32}));
 }
 
-TEST(VerticalLayout, UprightMarksDoNotTrim) {
+TEST(VerticalLayout, UprightMarksKeepFullCells) {
   // 〝 stays upright and centred in vertical text, so it keeps its full cell.
   ParsedText text(false, false, topAligned(), 0);
   text.addWord("あいう〝えお", EpdFontFamily::REGULAR);
   const auto columns = layout(text, 48);
   ASSERT_EQ(columns.size(), 2u);
-  EXPECT_EQ(columns[1].offsets.front(), 0);
+  EXPECT_EQ(columns[1].offsets, (std::vector<int16_t>{0, 16, 32}));
 }

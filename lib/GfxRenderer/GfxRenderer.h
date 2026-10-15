@@ -53,7 +53,8 @@ class GfxRenderer {
   mutable bool absoluteGrayPlanes = false;
   Orientation orientation;
   bool fadingFix;
-  // Font pair kerning and adjacent-punctuation trimming (Settings > Kerning).
+  // Font pair kerning, adjacent-punctuation trimming and tight vertical punctuation
+  // cells (Settings > Kerning).
   bool kerningEnabled_ = true;
   uint8_t* frameBuffer = nullptr;
   uint32_t frameBufferLoans = 0;
@@ -364,8 +365,8 @@ class GfxRenderer {
   int getSpaceAdvance(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
   /// Returns kerning plus optional tracking between two adjacent codepoints.
   int getKerning(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style, int8_t tracking = 0) const;
-  /// Kerning covers font pair kerning and the trimming of adjacent fullwidth
-  /// punctuation (PunctuationSpacing). Layout and drawing both read this flag;
+  /// Kerning covers font pair kerning, the trimming of adjacent fullwidth
+  /// punctuation (PunctuationSpacing) and tight vertical punctuation cells. Layout and drawing both read this flag;
   /// the reader sets it from its render spec and restores it on exit.
   void setKerningEnabled(bool enabled) { kerningEnabled_ = enabled; }
   bool isKerningEnabled() const { return kerningEnabled_; }
@@ -373,6 +374,10 @@ class GfxRenderer {
   /// strings (layout tokens): half the advance of `leftCp` for trimmed
   /// punctuation pairs, otherwise 0.
   int getPunctuationTrim(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
+  /// Length down the column of an upright vertical cell whose first codepoint is `cp`:
+  /// VerticalText::tightCellLength() with kerning on and the glyph in the font, else `em`.
+  int getVerticalCellLength(int fontId, VerticalText::CellKind kind, uint32_t cp, int em,
+                            EpdFontFamily::Style style) const;
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, int8_t tracking = 0,
                       BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO,
                       TextMeasureMode mode = TextMeasureMode::Layout) const;

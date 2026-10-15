@@ -6,6 +6,8 @@
 #include <iterator>
 #include <string_view>
 
+#include "PunctuationSpacing.h"
+
 // Glyph orientation for vertical (tategaki) text. The classes follow the
 // Vertical_Orientation property of Unicode UAX #50 for the characters a
 // Japanese book uses; fonts are drawn from their horizontal glyphs, so the
@@ -101,6 +103,22 @@ inline CellKind uprightKind(const uint32_t cp) {
   if (isSmallKana(cp)) return CellKind::SmallKana;
   if (isRotated(cp)) return CellKind::Rotated;
   return CellKind::Upright;
+}
+
+// Extent of an upright cell down the column when punctuation is set tight (the Kerning
+// setting): commas, full stops and brackets take half a cell, small kana three quarters.
+// Their ink fits there; drawVerticalCell() places it accordingly.
+inline int tightCellLength(const CellKind kind, const uint32_t cp, const int em) {
+  switch (kind) {
+    case CellKind::Corner:
+      return std::max(1, em / 2);
+    case CellKind::SmallKana:
+      return std::max(1, em - em / 4);
+    case CellKind::Rotated:
+      return PunctuationSpacing::isOpening(cp) || PunctuationSpacing::isClosing(cp) ? std::max(1, em / 2) : em;
+    default:
+      return em;
+  }
 }
 
 // True when a run of non-upright text is set as tate-chu-yoko: one or two ASCII
