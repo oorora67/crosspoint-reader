@@ -283,7 +283,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Hyphenation**: Whether to hyphenate text in Reading Mode; options are "ON" or "OFF". Korean text wraps only at spaces when "OFF"; when "ON", a Korean word may also wrap at the end of a line between syllables or where it meets digits, Latin letters, or brackets (no hyphen is drawn).
 
-- **Kerning**: Whether to adjust the space between letters; options are "ON" (default) or "OFF". "ON" applies the font's own pair kerning (for example in "AV" or "To") and removes half a character width between adjacent fullwidth punctuation, so 「。」」 or 「」「」 do not look spaced out, in horizontal and vertical text. "OFF" sets every character at its full width.
+- **Kerning**: Whether to adjust the space between letters; options are "ON" (default) or "OFF". "ON" applies the font's own pair kerning (for example in "AV" or "To") and removes half a character width between adjacent fullwidth punctuation, so 「。」」 or 「」「」 do not look spaced out, in horizontal and vertical text. "OFF" sets every character at its full width. Change it in the **Style** tab of **Text Settings**, or while reading from the **Text** panel when the reader toolbar is used.
 
 - **Reading Orientation**: Set the screen orientation for reading EPUB files:
   

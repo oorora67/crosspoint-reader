@@ -387,7 +387,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            StrId::STR_SPACING_PLUS_1, StrId::STR_SPACING_PLUS_2},
                           "characterSpacing", StrId::STR_CAT_READER)
             .withTextSettings(),
-        SettingInfo::Toggle(StrId::STR_KERNING, &CrossPointSettings::kerning, "kerning", StrId::STR_CAT_READER),
+        SettingInfo::Toggle(StrId::STR_KERNING, &CrossPointSettings::kerning, "kerning", StrId::STR_CAT_READER)
+            .withTextSettings(),
         SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin,
                            {CrossPointSettings::SCREEN_MARGIN_MIN, CrossPointSettings::SCREEN_MARGIN_MAX,
                             CrossPointSettings::SCREEN_MARGIN_STEP},

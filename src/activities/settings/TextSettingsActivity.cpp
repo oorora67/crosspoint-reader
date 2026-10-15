@@ -28,7 +28,7 @@ constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
     StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
     StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION, StrId::STR_EMBEDDED_STYLE,
-                                        StrId::STR_TEXT_AA};
+                                        StrId::STR_TEXT_AA, StrId::STR_KERNING};
 
 int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontFamilyName, uint8_t fontFamily) {
   if (sdFontFamilyName[0] != '\0' && registry) {
@@ -67,10 +67,18 @@ TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputMan
                                            const SdCardFontRegistry* registry, Tab initialTab)
     : UiTabListActivity("TextSettings", renderer, mappedInput), registry_(registry), tab_(initialTab) {}
 
+void TextSettingsActivity::onExit() {
+  renderer.setKerningEnabled(kerningOnEnter_);
+  UiTabListActivity::onExit();
+}
+
 const char* TextSettingsActivity::tabLabel(const int index) const { return I18N.get(TAB_NAME_IDS[index]); }
 
 void TextSettingsActivity::onEnter() {
   UiTabListActivity::onEnter();
+  // The preview lays out and draws with the renderer's kerning flag.
+  kerningOnEnter_ = renderer.isKerningEnabled();
+  renderer.setKerningEnabled(SETTINGS.kerning != 0);
 
   metrics_ = UITheme::getInstance().getMetrics();
   afterHeader = metrics_.topPadding + metrics_.headerHeight + metrics_.verticalSpacing;
@@ -494,6 +502,12 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
+    case StyleRow::Kerning: {
+      SETTINGS.kerning = !SETTINGS.kerning;
+      RenderLock lock;  // the render task lays out and draws the preview with this flag
+      renderer.setKerningEnabled(SETTINGS.kerning != 0);
+      break;
+    }
 
     default:
       return;
@@ -512,14 +526,16 @@ bool TextSettingsActivity::styleRowChecked(int row) const {
       return SETTINGS.embeddedStyle;
     case StyleRow::AntiAliasing:
       return SETTINGS.textAntiAliasing;
+    case StyleRow::Kerning:
+      return SETTINGS.kerning;
 
     default:
       return false;
   }
 }
 
-// Only Focus Reading shows in the preview (bold prefixes); the other Style rows
-// have no distinct preview.
+// Focus Reading (bold prefixes) and Kerning show in the preview; the other Style
+// rows have no distinct preview.
 bool TextSettingsActivity::focusedRowHasNoPreview() const {
   if (ringPos() == 0 || tab_ != Tab::Style) return false;
   const StyleRow row = static_cast<StyleRow>(ringPos() - 1);
