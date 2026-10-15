@@ -290,8 +290,10 @@ int GfxRenderer::resolveTextFontId(const int fontId, const char* text, const Epd
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
     const bool inPrimary = cp < 0x80 || primary.hasCodepoint(cp, style);
-    const bool inFallback = fallback && cp >= 0x80 && fallback->hasCodepoint(cp, style);
-    if (useOverride && !sysFont->hasCodepoint(cp, style) && (inPrimary || inFallback)) {
+    const bool sysMissing = useOverride && !sysFont->hasCodepoint(cp, style);
+    // The fallback lookup matters only when the primary or the system font misses cp.
+    const bool inFallback = fallback && cp >= 0x80 && (!inPrimary || sysMissing) && fallback->hasCodepoint(cp, style);
+    if (sysMissing && (inPrimary || inFallback)) {
       useOverride = false;
     }
     if (!inPrimary && inFallback) {

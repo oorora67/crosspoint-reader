@@ -93,8 +93,8 @@ class SdCardFontSystem {
   bool dropReaderUiFallbacks(GfxRenderer& renderer);
   // Unload the .cpfont reader family together with the fallbacks into it.
   void unloadReaderCpfont(GfxRenderer& renderer);
-  // True when the system font draws every fallback probe script `readerFont`
-  // has, so reader-font UI fallbacks would add nothing.
+  // True when reader-font UI fallbacks would add too little: the system font
+  // has Han, or draws every fallback probe script `readerFont` has.
   bool uiFontCoversScriptsOf(const GfxRenderer& renderer, int readerFontId) const;
 
 #if CROSSPOINT_VECTOR_FONTS
@@ -142,15 +142,17 @@ class SdCardFontSystem {
   };
 
   // Open one style source file into sources[style]: resident if at most
-  // `residentMax` bytes and RAM allows, streamed otherwise. Returns false on
-  // open/read failure.
-  bool openTtfSource(TtfSource* sources, uint8_t style, const std::string& path, size_t residentMax);
+  // `residentMax` bytes and RAM allows, otherwise streamed with up to
+  // `prefixMax` bytes of the file head cached. Returns false on open/read failure.
+  bool openTtfSource(TtfSource* sources, uint8_t style, const std::string& path, size_t residentMax, size_t prefixMax);
   // Register every present source with `font` (shared bytes / file handles).
   static void addTtfSources(TtfEpdFont& font, TtfSource* sources);
   // Close/free all four style sources.
   static void freeTtfSources(TtfSource* sources);
-  // Open the family's style files into `sources`. False when regular fails.
-  bool openTtfFamilySources(const SdCardFontFamilyInfo& family, TtfSource* sources, size_t residentMax);
+  // Open the family's style files with a role below `roleCount` (0=regular,
+  // 1=bold, 2=italic, 3=bold-italic) into `sources`. False when regular fails.
+  bool openTtfFamilySources(const SdCardFontFamilyInfo& family, TtfSource* sources, uint8_t roleCount,
+                            size_t residentMax, size_t prefixMax);
   // Load a vector system font at the UI sizes (see loadUiFont).
   bool loadTtfUiFont(const SdCardFontFamilyInfo& family, GfxRenderer& renderer);
   // Unregister + free the vector system font, if any.

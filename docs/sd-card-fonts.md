@@ -163,7 +163,9 @@ reading font has is drawn with that font instead. So a Latin-only system font
 still shows Japanese menus with the built-in font.
 
 The reading font acts as the UI fallback described above only for scripts the
-system font does not cover. With a system font that covers them, the reading
+system font does not cover. To save memory, a system font with CJK ideographs
+(kanji/hanzi) counts as covering every script, so a script it lacks (such as
+Hangul) is not filled in from the reading font. With a system font that covers them, the reading
 font never changes how the interface looks, and its UI sizes are not loaded.
 
 A change made in the web interface takes effect when the device restarts at the

@@ -19,8 +19,16 @@ namespace {
 #if CROSSPOINT_VECTOR_FONTS
 // Reader faces may hold a whole multi-MB font in PSRAM (see openTtfSource).
 constexpr size_t kReaderTtfResidentMax = 6 * 1024 * 1024;
-// System font faces draw short UI strings; stream anything larger.
+// Head of a streamed reader file cached in PSRAM (see openTtfSource).
+constexpr size_t kReaderTtfPrefixMax = 1024 * 1024;
+// System font faces draw short UI strings: stream anything larger than this,
+// cache a smaller head, and open only regular and bold (the UI draws no italic).
 constexpr size_t kUiTtfResidentMax = 512 * 1024;
+constexpr size_t kUiTtfPrefixMax = 256 * 1024;
+constexpr uint8_t kUiTtfRoles = 2;
+// Per-size glyph cache of the system font: holds a CJK settings page.
+constexpr size_t kUiTtfGlyphCacheBytes = 64 * 1024;
+constexpr uint16_t kUiTtfMaxGlyphs = 768;
 
 // Stable, non-zero renderer font id for a vector family at a size (FNV-1a of
 // name + size). 0 is the "not found" sentinel, so bump collisions to 1.
@@ -320,6 +328,9 @@ bool SdCardFontSystem::uiFontCoversScriptsOf(const GfxRenderer& renderer, const 
   const auto readerIt = fonts.find(readerFontId);
   const auto uiIt = fonts.find(uiProbeFontId_);
   if (readerIt == fonts.end() || uiIt == fonts.end()) return false;
+  // A CJK system font counts as covering: three more CJK fallback sizes would
+  // cost tens of KB of heap each for minor scripts it may lack (Hangul, IPA).
+  if (uiIt->second.hasCodepoint(0x4E00)) return true;
   return std::none_of(std::begin(kFallbackProbes), std::end(kFallbackProbes), [&](const uint32_t cp) {
     return readerIt->second.hasCodepoint(cp) && !uiIt->second.hasCodepoint(cp);
   });
@@ -409,11 +420,11 @@ void SdCardFontSystem::unloadTtf(GfxRenderer& renderer) {
 }
 
 bool SdCardFontSystem::openTtfFamilySources(const SdCardFontFamilyInfo& family, TtfSource* sources,
-                                            const size_t residentMax) {
+                                            const uint8_t roleCount, const size_t residentMax, const size_t prefixMax) {
   for (const auto& file : family.files) {
     const uint8_t role = file.style < 4 ? file.style : 0;
-    if (sources[role].present) continue;  // registry already deduped by role
-    openTtfSource(sources, role, file.path, residentMax);
+    if (role >= roleCount || sources[role].present) continue;  // registry already deduped by role
+    openTtfSource(sources, role, file.path, residentMax, prefixMax);
   }
   if (sources[0].present) return true;
   freeTtfSources(sources);
@@ -421,7 +432,7 @@ bool SdCardFontSystem::openTtfFamilySources(const SdCardFontFamilyInfo& family, 
 }
 
 bool SdCardFontSystem::openTtfSource(TtfSource* sources, const uint8_t style, const std::string& path,
-                                     const size_t residentMax) {
+                                     const size_t residentMax, const size_t prefixMax) {
   if (style >= 4) return false;
   // Small fonts are read fully into RAM (fastest, fewest SD reads; PSRAM when
   // present). Large fonts (e.g. multi-MB variable/CJK) STREAM from SD so the
@@ -475,10 +486,9 @@ bool SdCardFontSystem::openTtfSource(TtfSource* sources, const uint8_t style, co
     s.streamed = true;
     // Cache the file's head in PSRAM: an sfnt's per-glyph-fault tables (cmap,
     // loca, hmtx) sit before the multi-MB glyf table, so serving the first
-    // 1 MB from RAM turns each glyph fault's 4-6 scattered SD seeks into one
+    // `prefix` bytes from RAM turns each glyph fault's 4-6 scattered SD seeks into one
     // glyf read. Gated per source so a small-PSRAM board takes what fits.
-    static constexpr size_t kStreamPrefix = 1024 * 1024;
-    const size_t prefix = len < kStreamPrefix ? len : kStreamPrefix;
+    const size_t prefix = len < prefixMax ? len : prefixMax;
     if (heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) > prefix + 256 * 1024) {
       s.bytes.resize(prefix);
       if (s.file.seek(0) && static_cast<size_t>(s.file.read(s.bytes.data(), prefix)) == prefix) {
@@ -566,7 +576,7 @@ void SdCardFontSystem::setupTtfUiFallbacks(GfxRenderer& renderer) {
 }
 
 bool SdCardFontSystem::loadTtfUiFont(const SdCardFontFamilyInfo& family, GfxRenderer& renderer) {
-  if (!openTtfFamilySources(family, sysTtfSources_, kUiTtfResidentMax)) return false;
+  if (!openTtfFamilySources(family, sysTtfSources_, kUiTtfRoles, kUiTtfResidentMax, kUiTtfPrefixMax)) return false;
   for (const auto& ui : kUiFontSizes) {
     auto f = makeUniqueNoThrow<TtfEpdFont>();
     if (!f) {
@@ -574,8 +584,7 @@ bool SdCardFontSystem::loadTtfUiFont(const SdCardFontFamilyInfo& family, GfxRend
       continue;  // this size keeps the built-in font
     }
     addTtfSources(*f, sysTtfSources_);
-    // Small caches, as for the UI fallbacks: UI strings are short.
-    if (!f->load(ui.pointSize, /*twoBit=*/true, /*glyphCacheBytes=*/16 * 1024, /*maxGlyphs=*/384)) continue;
+    if (!f->load(ui.pointSize, /*twoBit=*/true, kUiTtfGlyphCacheBytes, kUiTtfMaxGlyphs)) continue;
     // Salted apart from the reader face and its UI fallbacks of the same family.
     const int id = computeTtfFontId((family.name + "\x02sys").c_str(), ui.pointSize);
     renderer.insertFont(id, f->family());
@@ -654,7 +663,7 @@ void SdCardFontSystem::loadTtfFamily(const SdCardFontFamilyInfo& family, GfxRend
   // 3=bold-italic). A single-file family (loose .ttf, or a folder with one file)
   // supplies only regular; TtfEpdFont then derives bold/italic from the wght axis
   // or an oblique shear. Extra files upgrade those styles to the real designs.
-  if (!openTtfFamilySources(family, ttfSources_, kReaderTtfResidentMax)) {
+  if (!openTtfFamilySources(family, ttfSources_, /*roleCount=*/4, kReaderTtfResidentMax, kReaderTtfPrefixMax)) {
     // Possibly a transient SD read failure: keep the user's selection so the
     // next ensureLoaded() retries; this session falls back to the built-in.
     LOG_ERR("SDFS", "Vector family %s: regular file failed to open (keeping selection)", family.name.c_str());
