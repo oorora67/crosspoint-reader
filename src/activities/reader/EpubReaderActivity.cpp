@@ -2340,6 +2340,9 @@ bool EpubReaderActivity::usesVerticalLayout() const {
 ReaderRenderSpec EpubReaderActivity::bookRenderSpec(const uint16_t viewportWidth, const uint16_t viewportHeight) const {
   ReaderRenderSpec spec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
   spec.verticalMode = usesVerticalLayout();
+  // Every load and build goes through here, so layout always runs with the
+  // kerning state its section header records.
+  renderer.setKerningEnabled(spec.kerning);
   return spec;
 }
 

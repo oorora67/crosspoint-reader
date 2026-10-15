@@ -588,3 +588,4 @@ STR_CLIPPING_EXPORT_FAILED: "クリップは保存しましたが、テキスト
 STR_GO_TO_PASSAGE: "該当箇所へ移動"
 STR_UI_FONT: "システムの書体"
 STR_UI_FONT_BUILTIN: "標準"
+STR_KERNING: "カーニング"

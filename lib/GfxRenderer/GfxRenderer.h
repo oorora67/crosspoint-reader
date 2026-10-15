@@ -53,6 +53,8 @@ class GfxRenderer {
   mutable bool absoluteGrayPlanes = false;
   Orientation orientation;
   bool fadingFix;
+  // Font pair kerning and adjacent-punctuation trimming (Settings > Kerning).
+  bool kerningEnabled_ = true;
   uint8_t* frameBuffer = nullptr;
   uint32_t frameBufferLoans = 0;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
@@ -119,6 +121,12 @@ class GfxRenderer {
   // otherwise returns fontId unchanged. The whole string is routed as a unit so each draw/measure
   // call stays single-font (consistent bit depth, metrics, wrapping).
   int resolveTextFontId(int fontId, const char* text, EpdFontFamily::Style style) const;
+
+  // Spacing adjustment between two glyphs of one string, in the 12.4 fixed point
+  // of advances: font pair kerning plus the punctuation trim (half of
+  // `prevAdvanceFP`). 0 when kerning is disabled.
+  int32_t pairAdjustFP(const EpdFontFamily& font, uint32_t prevCp, uint32_t cp, EpdFontFamily::Style style,
+                       int32_t prevAdvanceFP) const;
 
   // Batch-load `text`'s glyphs into an SD-card font's resident mini tables
   // before a per-glyph measure/draw loop runs. Called when resolveTextFontId
@@ -353,6 +361,15 @@ class GfxRenderer {
   int getSpaceAdvance(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
   /// Returns kerning plus optional tracking between two adjacent codepoints.
   int getKerning(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style, int8_t tracking = 0) const;
+  /// Kerning covers font pair kerning and the trimming of adjacent fullwidth
+  /// punctuation (PunctuationSpacing). Layout and drawing both read this flag;
+  /// the reader sets it from its render spec and restores it on exit.
+  void setKerningEnabled(bool enabled) { kerningEnabled_ = enabled; }
+  bool isKerningEnabled() const { return kerningEnabled_; }
+  /// Pixels removed between `leftCp` and `rightCp` when they sit in separate
+  /// strings (layout tokens): half the advance of `leftCp` for trimmed
+  /// punctuation pairs, otherwise 0.
+  int getPunctuationTrim(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontFamily::Style style) const;
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style, int8_t tracking = 0,
                       BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO,
                       TextMeasureMode mode = TextMeasureMode::Layout) const;

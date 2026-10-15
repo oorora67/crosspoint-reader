@@ -26,6 +26,8 @@ struct ReaderRenderSpec {
   bool focusReadingEnabled = false;
   // Vertical (tategaki) layout: columns top to bottom, pages turn right to left.
   bool verticalMode = false;
+  // Font pair kerning and adjacent fullwidth punctuation trimming.
+  bool kerning = true;
 };
 
 // Stable signature for clipping anchors. Page-local word ordinals are valid
@@ -50,5 +52,7 @@ inline uint32_t readerRenderSpecSignature(const ReaderRenderSpec& spec) {
   mix(spec.focusReadingEnabled);
   // Mixed only when set, so horizontal anchors saved before vertical writing stay valid.
   if (spec.verticalMode) mix(1);
+  // Mixed only when off, so anchors saved before the kerning setting stay valid.
+  if (!spec.kerning) mix(2);
   return signature == 0 ? 1 : signature;
 }

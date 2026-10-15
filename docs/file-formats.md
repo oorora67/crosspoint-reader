@@ -96,6 +96,13 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 57
+
+The header adds `bool kerning` after `verticalMode`; it participates in cache
+validation. When it is set, layout applies font pair kerning and removes half an
+em between adjacent fullwidth punctuation (`PunctuationSpacing`). Older
+completed and partial section caches are rebuilt automatically.
+
 ### Version 56
 
 Vertical writing (tategaki). The header adds `bool verticalMode` after
@@ -249,7 +256,8 @@ superscript, and subscript. The format also includes:
   on-disk order mirrors the in-RAM arena so the firmware reads a whole block
   payload with a single allocation and a single SD read
 
-ImHex pattern:
+ImHex pattern (describes version 50; versions 51 to 57 are not covered, see
+the version notes above):
 
 ```c++
 import std.mem;

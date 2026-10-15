@@ -7,6 +7,7 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <MemoryManager.h>
+#include <PunctuationSpacing.h>
 #include <SdCardFont.h>
 #include <TtfEpdFont.h>
 #include <Utf8.h>
@@ -820,7 +821,7 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     // identical character pairs always produce the same pixel step regardless of
     // where they fall on the line.
     if (prevCp != 0) {
-      const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
+      const int32_t kernFP = pairAdjustFP(font, prevCp, cp, style, prevAdvanceFP);
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP) + trackingBetween(prevCp, cp, tracking);
     }
 
@@ -2146,8 +2147,9 @@ int GfxRenderer::getSpaceAdvance(const int fontId, const uint32_t leftCp, const 
   const int32_t spaceAdvanceFP = spaceGlyph ? static_cast<int32_t>(spaceGlyph->advanceX) : 0;
   // Combine space advance + flanking kern into one fixed-point sum before snapping.
   // Snapping the combined value avoids the +/-1 px error from snapping each component separately.
-  const int32_t kernFP = static_cast<int32_t>(font.getKerning(leftCp, ' ', style)) +
-                         static_cast<int32_t>(font.getKerning(' ', rightCp, style));
+  const int32_t kernFP = kerningEnabled_ ? static_cast<int32_t>(font.getKerning(leftCp, ' ', style)) +
+                                               static_cast<int32_t>(font.getKerning(' ', rightCp, style))
+                                         : 0;
   return fp4::toPixel(spaceAdvanceFP + kernFP);
 }
 
@@ -2155,8 +2157,25 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
                             const EpdFontFamily::Style style, const int8_t tracking) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) return 0;
-  const int kernFP = fontIt->second.getKerning(leftCp, rightCp, style);      // 4.4 fixed-point
+  const int kernFP = kerningEnabled_ ? fontIt->second.getKerning(leftCp, rightCp, style) : 0;  // 4.4 fixed-point
   return fp4::toPixel(kernFP) + trackingBetween(leftCp, rightCp, tracking);  // snap 4.4 fixed-point to nearest pixel
+}
+
+int GfxRenderer::getPunctuationTrim(const int fontId, const uint32_t leftCp, const uint32_t rightCp,
+                                    const EpdFontFamily::Style style) const {
+  if (!kerningEnabled_ || !PunctuationSpacing::trimsHalfBetween(leftCp, rightCp)) return 0;
+  // Every trimmed mark lies in U+3001..U+FF60: three UTF-8 bytes.
+  const char buf[4] = {static_cast<char>(0xE0 | (leftCp >> 12)), static_cast<char>(0x80 | ((leftCp >> 6) & 0x3F)),
+                       static_cast<char>(0x80 | (leftCp & 0x3F)), '\0'};
+  return getTextAdvanceX(fontId, buf, style) / 2;
+}
+
+int32_t GfxRenderer::pairAdjustFP(const EpdFontFamily& font, const uint32_t prevCp, const uint32_t cp,
+                                  const EpdFontFamily::Style style, const int32_t prevAdvanceFP) const {
+  if (!kerningEnabled_) return 0;
+  int32_t adjustFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed point, same scale as 12.4 advances
+  if (PunctuationSpacing::trimsHalfBetween(prevCp, cp)) adjustFP -= prevAdvanceFP / 2;
+  return adjustFP;
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style, const int8_t tracking,
@@ -2180,6 +2199,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     int32_t widthFP = 0;
     int trackingPx = 0;
     uint32_t prevCp = 0;
+    int32_t prevAdvFP = 0;
     const bool isSupSub = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
     const uint8_t styleIdx = resolveSdCardStyle(*sdIt->second, style);
     const auto fontIt = fontMap.find(resolvedFontId);
@@ -2201,7 +2221,10 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
           advFP = glyph ? glyph->advanceX : 0;
         }
         trackingPx += trackingBetween(prevCp, cp, tracking);
+        // Pair kerning needs kern data, not loaded here; the punctuation trim does not.
+        if (kerningEnabled_ && PunctuationSpacing::trimsHalfBetween(prevCp, cp)) widthFP -= prevAdvFP / 2;
         prevCp = cp;
+        prevAdvFP = isSupSub ? (advFP + 1) / 2 : advFP;
       }
       widthFP += isSupSub ? (advFP + 1) / 2 : advFP;
     }
@@ -2232,7 +2255,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
     // Differential rounding: snap (previous advance + current kern) together,
     // matching drawText so measurement and rendering agree exactly.
     if (prevCp != 0) {
-      const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
+      const int32_t kernFP = pairAdjustFP(font, prevCp, cp, style, prevAdvanceFP);
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP) + trackingBetween(prevCp, cp, tracking);
     }
 
@@ -2337,8 +2360,8 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     // Differential rounding: snap (previous advance + current kern) as one unit,
     // subtracting for the rotated coordinate direction.
     if (prevCp != 0) {
-      const auto kernFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
-      lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
+      const int32_t kernFP = pairAdjustFP(font, prevCp, cp, style, prevAdvanceFP);
+      lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);  // snap 12.4 fixed-point to nearest pixel
     }
 
     EpdGlyph solidFallback;
@@ -2460,7 +2483,7 @@ void GfxRenderer::drawVerticalCell(const int fontId, const int centerX, const in
         }
         cp = font.applyLigatures(cp, cursor, style);
         if (prevCp != 0) {
-          penY += fp4::toPixel(prevAdvanceFP + font.getKerning(prevCp, cp, style));
+          penY += fp4::toPixel(prevAdvanceFP + pairAdjustFP(font, prevCp, cp, style, prevAdvanceFP));
         }
         EpdGlyph solidFallback;
         const EpdGlyph* glyph = font.getGlyphMetrics(cp, solidFallback, style);

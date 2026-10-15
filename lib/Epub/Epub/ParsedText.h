@@ -130,7 +130,7 @@ class ParsedText {
   template <typename Fn>
   void forEachVerticalCell(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex, Fn&& fn) const;
   uint16_t verticalWordLength(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex) const;
-  int verticalGapBefore(const GfxRenderer& renderer, int fontId, size_t wordIndex) const;
+  int verticalGapBefore(const GfxRenderer& renderer, int fontId, int em, size_t wordIndex) const;
   int verticalRubyLength(int em, size_t wordIndex) const;
   int verticalFirstColumnIndent(const GfxRenderer& renderer, int fontId, int em) const;
   bool extractColumn(size_t first, size_t last, int columnLength, int em, bool isLastColumn,

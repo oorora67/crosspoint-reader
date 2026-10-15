@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EpdFontFamily.h>
+#include <PunctuationSpacing.h>
 #include <Utf8.h>
 #include <VerticalText.h>
 
@@ -53,6 +54,12 @@ class GfxRenderer {
     return trackingBetween(left, right, tracking);
   }
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 4; }
+  // Punctuation trimming: half of the 8 px glyph when kerning is on.
+  bool kerningEnabled = true;
+  bool isKerningEnabled() const { return kerningEnabled; }
+  int getPunctuationTrim(int, uint32_t left, uint32_t right, EpdFontFamily::Style) const {
+    return kerningEnabled && PunctuationSpacing::trimsHalfBetween(left, right) ? 4 : 0;
+  }
   // Vertical text: a 16 px em; drawing is a no-op.
   int getVerticalEm(int) const { return 16; }
   void drawVerticalCell(int, int, int, int, const char*, VerticalText::CellKind,
