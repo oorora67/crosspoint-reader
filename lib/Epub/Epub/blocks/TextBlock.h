@@ -1,6 +1,7 @@
 #pragma once
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
+#include <VerticalText.h>
 
 #include <memory>
 #include <string>
@@ -27,6 +28,7 @@
 //   uint16_t focusSuffixX[wordCount]   present only when focusPresent
 //   uint8_t  styles[wordCount]
 //   uint8_t  focusBoundary[wordCount]  present only when focusPresent
+//   uint8_t  cellKinds[wordCount]      present only when isVertical
 //   char     text[textBytes]           all words back to back, NUL-terminated
 //
 // Each word is stored NUL-terminated so render() can hand `text + textOff[i]`
@@ -39,6 +41,11 @@
 // word start to the regular suffix. Both arrays are omitted from the arena
 // entirely when no word on the line has a split (zero per-word RAM cost when
 // focus reading is disabled).
+//
+// A vertical (tategaki) block is one column. Each word is one cell, xpos holds
+// the cell's offset down the column, and cellKinds says how the cell is drawn.
+// render() then takes x as the column's centre line. Vertical blocks never carry
+// focus splits.
 class TextBlock final : public Block {
  public:
   // The unused high bit of the cached style byte carries clipping metadata.
@@ -60,8 +67,11 @@ class TextBlock final : public Block {
   uint16_t numWords = 0;
   uint16_t paragraphStartWord = UINT16_MAX;  // Visual index of the paragraph's first logical word.
   uint16_t textBytes = 0;                    // total size of the text region, including NULs
-  bool focusPresent = false;
-  bool isValid = true;
+  uint16_t verticalEm = 0;                   // cell size of a vertical column (font-derived, cached for drawing)
+  // Bit-fields keep the flags in one byte; every resident line pays for this struct.
+  bool focusPresent : 1 = false;
+  bool isVertical : 1 = false;
+  bool isValid : 1 = true;
   // The ONLY allocation: makeUniqueNoThrow, so OOM yields an invalid block
   // instead of abort() (bare new is not nothrow with -fno-exceptions).
   std::unique_ptr<uint8_t[]> arena;
@@ -73,6 +83,7 @@ class TextBlock final : public Block {
   const uint16_t* focusSuffixXArr = nullptr;  // null when !focusPresent
   const uint8_t* stylesArr = nullptr;
   const uint8_t* focusBoundaryArr = nullptr;  // null when !focusPresent
+  const uint8_t* cellKindsArr = nullptr;      // null when !isVertical
   const char* textArr = nullptr;
   std::vector<std::string> rubyTexts;
   // Layout-only metadata. ChapterHtmlSlimParser moves it into Page::links
@@ -80,8 +91,10 @@ class TextBlock final : public Block {
   std::vector<LinkSpan> linkSpans;
 
   TextBlock() = default;  // deserialize() fills the fields directly
-  static size_t arenaSize(uint16_t wordCount, bool hasFocus, uint16_t textBytes);
+  static size_t arenaSize(uint16_t wordCount, bool hasFocus, bool hasVertical, uint16_t textBytes);
   void bindArenaPointers();
+  void renderVertical(const GfxRenderer& renderer, int fontId, int centerX, int y) const;
+  int cellLength(const GfxRenderer& renderer, int fontId, uint16_t i) const;
 
  public:
   // Flatten-on-construct: copies the layout-time vectors into the arena; the
@@ -91,7 +104,8 @@ class TextBlock final : public Block {
                      const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSuffixX, const BlockStyle& blockStyle = BlockStyle(),
                      std::vector<std::string> rubyTexts = {}, std::vector<LinkSpan> linkSpans = {},
-                     const std::vector<SourceRange>& ranges = {}, uint16_t paragraphStartWord = UINT16_MAX);
+                     const std::vector<SourceRange>& ranges = {}, uint16_t paragraphStartWord = UINT16_MAX,
+                     const std::vector<VerticalText::CellKind>& cellKinds = {}, uint16_t verticalEm = 0);
   ~TextBlock() override = default;
   TextBlock(const TextBlock&) = delete;
   TextBlock& operator=(const TextBlock&) = delete;
@@ -116,6 +130,10 @@ class TextBlock final : public Block {
   bool wordHasDiscretionaryHyphen(const uint16_t i) const { return (stylesArr[i] & DISCRETIONARY_HYPHEN_FLAG) != 0; }
   uint8_t focusBoundary(const uint16_t i) const { return focusPresent ? focusBoundaryArr[i] : 0; }
   uint16_t focusSuffixX(const uint16_t i) const { return focusPresent ? focusSuffixXArr[i] : 0; }
+  bool vertical() const { return isVertical; }
+  VerticalText::CellKind cellKind(const uint16_t i) const {
+    return isVertical ? static_cast<VerticalText::CellKind>(cellKindsArr[i]) : VerticalText::CellKind::Upright;
+  }
   bool hasRuby() const;
   int getRubyShift(int ascender) const { return hasRuby() ? (ascender / 2) : 0; }
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }

@@ -6,10 +6,15 @@ All POD fields are written in the ESP32 little-endian representation used by
 
 ## `book.bin`
 
-### Version 10
+### Version 11
 
 `book.bin` stores EPUB metadata plus lookup tables for spine and TOC entries.
 The current firmware writes this version from `BookMetadataCache`.
+
+Version 11 adds a `u8 pageProgressionRtl` after `textReferenceHref`: 1 when the
+OPF spine declares `page-progression-direction="rtl"`. Writing Mode Auto uses
+it, together with a Japanese, Chinese or Korean book language, to lay a book out
+vertically. Older caches are rebuilt automatically.
 
 ImHex pattern:
 
@@ -18,7 +23,7 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define EXPECTED_VERSION 10
+#define EXPECTED_VERSION 11
 #define MAX_STRING_LENGTH 65535
 
 struct String {
@@ -39,6 +44,7 @@ struct Metadata {
     String language [[comment("Book language code")]];
     String coverItemHref [[comment("Path to cover image")]];
     String textReferenceHref [[comment("Path to guided first text reference")]];
+    u8 pageProgressionRtl [[comment("1 when the spine's page-progression-direction is rtl")]];
 };
 
 struct SpineEntry {
@@ -89,6 +95,18 @@ if (parsedSize != fileSize) {
 ```
 
 ## `section.bin`
+
+### Version 56
+
+Vertical writing (tategaki). The header adds `bool verticalMode` after
+`wordSpacingPercent`; it participates in cache validation. The TextBlock byte
+that held `hasFocus` is now a flag byte: bit 0 is focus metadata, bit 1 marks a
+vertical column. A vertical column writes a `u16 verticalEm` (cell size) after
+`paragraphStartWord`, and its arena ends with one `u8` cell kind per word
+(`VerticalText::CellKind`) before the text. In a vertical column `xpos` is the
+cell's offset down the column and the PageLine `xPos` is the column's centre
+line. `PageHorizontalRule` adds a `u8 vertical` after `thickness`. Older
+completed and partial section caches are rebuilt automatically.
 
 ### Version 55
 

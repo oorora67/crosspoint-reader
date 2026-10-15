@@ -63,11 +63,12 @@ struct PageTurnResult {
   bool fromTilt;
 };
 
-inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
+// mirrorFront swaps the front Left/Right page buttons, for books that advance to the left.
+inline PageTurnResult detectPageTurn(const MappedInputManager& input, const bool mirrorFront = false) {
   const bool usePress = SETTINGS.longPressButtonBehavior == SETTINGS.OFF;
   const bool tiltNext = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedForward();
   const bool tiltPrev = SETTINGS.tiltPageTurn && halTiltSensor.wasTiltedBack();
-  const bool swapFront = input.isNavDirectionSwapped();
+  const bool swapFront = input.isNavDirectionSwapped() != mirrorFront;
   const auto prevButton = swapFront ? MappedInputManager::Button::Right : MappedInputManager::Button::Left;
   const auto nextButton = swapFront ? MappedInputManager::Button::Left : MappedInputManager::Button::Right;
   const auto pageButtonTriggered = [&](const MappedInputManager::Button button) {

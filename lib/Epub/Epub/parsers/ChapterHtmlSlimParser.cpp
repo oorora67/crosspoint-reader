@@ -464,13 +464,15 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
       static_cast<int16_t>((blockStyle.marginBottom > 0 ? blockStyle.marginBottom : defaultVerticalSpacing) +
                            (blockStyle.paddingBottom > 0 ? blockStyle.paddingBottom : 0));
   constexpr uint8_t ruleThickness = 2;
+  // In vertical text the rule runs down the page, a quarter of the column long.
+  const int16_t inlineExtent = static_cast<int16_t>(verticalMode ? viewportHeight : viewportWidth);
   const int16_t availableWidth =
-      std::max<int16_t>(1, static_cast<int16_t>(viewportWidth - blockStyle.totalHorizontalInset()));
+      std::max<int16_t>(1, static_cast<int16_t>(inlineExtent - blockStyle.totalHorizontalInset()));
   const int16_t width = std::max<int16_t>(1, static_cast<int16_t>(availableWidth / 4));
-  const int16_t xPos = static_cast<int16_t>(blockStyle.leftInset() + ((availableWidth - width) / 2));
+  const int16_t inlinePos = static_cast<int16_t>(blockStyle.leftInset() + ((availableWidth - width) / 2));
   const int16_t totalHeight = static_cast<int16_t>(topSpacing + ruleThickness + bottomSpacing);
 
-  if (!currentPage->elements.empty() && currentPageNextY + totalHeight > viewportHeight) {
+  if (!currentPage->elements.empty() && currentPageNextY + totalHeight > blockAxisLimit()) {
     setCurrentPageVisibleOffset(visibleTextOffset);
     completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex, currentPageVisibleOffset);
     completedPageCount++;
@@ -485,7 +487,11 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
 
   currentPageNextY += topSpacing;
 
-  auto pageRule = makeUniqueNoThrow<PageHorizontalRule>(width, ruleThickness, xPos, currentPageNextY);
+  auto pageRule =
+      verticalMode ? makeUniqueNoThrow<PageHorizontalRule>(
+                         width, ruleThickness, static_cast<int16_t>(viewportWidth - currentPageNextY - ruleThickness),
+                         inlinePos, /*vertical=*/true)
+                   : makeUniqueNoThrow<PageHorizontalRule>(width, ruleThickness, inlinePos, currentPageNextY);
   if (!pageRule) {
     LOG_ERR("EHP", "Failed to create PageHorizontalRule");
     return;
@@ -555,7 +561,8 @@ void ChapterHtmlSlimParser::closeTableCell() {
 }
 
 void ChapterHtmlSlimParser::addTableRowSeparator() {
-  if (!currentPage || currentPage->elements.empty() || viewportWidth == 0 ||
+  // Vertical text stacks table rows as paragraphs, without separators.
+  if (verticalMode || !currentPage || currentPage->elements.empty() || viewportWidth == 0 ||
       currentPageNextY + TABLE_ROW_SEPARATOR_GAP > viewportHeight) {
     return;
   }
@@ -590,8 +597,9 @@ void ChapterHtmlSlimParser::finishTableRow() {
   const uint16_t cellWidth = static_cast<uint16_t>(viewportWidth / columnCount);
 
   // Keep enough width for a few glyphs while allowing ordinary three-column
-  // tables to remain tabular at the default font size in portrait.
-  if (columnCount < 2 || cellWidth <= TABLE_CELL_HORIZONTAL_PADDING * 2 ||
+  // tables to remain tabular at the default font size in portrait. Vertical text
+  // has no grid layout: every row becomes paragraphs.
+  if (verticalMode || columnCount < 2 || cellWidth <= TABLE_CELL_HORIZONTAL_PADDING * 2 ||
       cellWidth < lineHeight * TABLE_MIN_CELL_WIDTH_LINE_HEIGHTS) {
     fallbackTableRowToStacked();
     addTableRowSeparator();
@@ -857,7 +865,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->makePages();
     }
     self->currentTextBlock.reset();
-    self->tableRowStacked = self->tableRowsSpannedRemaining > 0;
+    // Grid rows are laid out horizontally; vertical text stacks every row as paragraphs.
+    self->tableRowStacked = self->verticalMode || self->tableRowsSpannedRemaining > 0;
     self->tableRowRtl = cssStyle.hasDirection() && cssStyle.direction == CssTextDirection::Rtl;
     if (self->tableRowsSpannedRemaining != UINT16_MAX && self->tableRowsSpannedRemaining > 0) {
       self->tableRowsSpannedRemaining--;
@@ -1166,10 +1175,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   }
                 }
 
+                // Extent along the block axis: down the page, or right to left in vertical text.
+                const int blockExtent = self->verticalMode ? displayWidth : displayHeight;
+                const int blockLimit = self->blockAxisLimit();
+
                 // Create page for image - only break if image won't fit remaining space
                 if (self->currentPage && !self->currentPage->elements.empty() &&
-                    (self->currentPageNextY + imageMarginTop + displayHeight + imageMarginBottom >
-                     self->viewportHeight)) {
+                    (self->currentPageNextY + imageMarginTop + blockExtent + imageMarginBottom > blockLimit)) {
                   self->completePageFn(std::move(self->currentPage), self->xpathParagraphIndex,
                                        self->xpathListItemIndex, self->currentPageVisibleOffset);
                   self->completedPageCount++;
@@ -1198,8 +1210,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                 // bar / big screen margin) absorbs that overflow silently, but with a
                 // thin reserve it crosses the physical screen edge and fails
                 // ImageBlock::render's bounds check, dropping the image entirely.
-                if (self->currentPageNextY + imageMarginTop + displayHeight > self->viewportHeight) {
-                  const int room = self->viewportHeight - displayHeight - self->currentPageNextY;
+                if (self->currentPageNextY + imageMarginTop + blockExtent > blockLimit) {
+                  const int room = blockLimit - blockExtent - self->currentPageNextY;
                   imageMarginTop = static_cast<int16_t>(room > 0 ? room : 0);
                 }
                 self->currentPageNextY += imageMarginTop;
@@ -1211,14 +1223,20 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
                   return;
                 }
                 int xPos = (self->viewportWidth - displayWidth) / 2;
-                auto pageImage = makeUniqueNoThrow<PageImage>(std::move(imageBlock), xPos, self->currentPageNextY);
+                int yPos = self->currentPageNextY;
+                if (self->verticalMode) {
+                  // Vertical text: the image takes the next columns and is centred down the page.
+                  xPos = self->viewportWidth - self->currentPageNextY - displayWidth;
+                  yPos = (self->viewportHeight - displayHeight) / 2;
+                }
+                auto pageImage = makeUniqueNoThrow<PageImage>(std::move(imageBlock), xPos, yPos);
                 if (!pageImage) {
                   LOG_ERR("EHP", "Failed to create PageImage");
                   return;
                 }
                 self->currentPage->elements.push_back(std::move(pageImage));
                 self->setCurrentPageVisibleOffset(self->visibleTextOffset);
-                self->currentPageNextY += displayHeight + imageMarginBottom;
+                self->currentPageNextY += blockExtent + imageMarginBottom;
 
                 // The image consumed the empty block's accumulated vertical spacing.
                 // Reset the block so the Vertical merge in startNewTextBlock doesn't
@@ -2254,6 +2272,58 @@ void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const
   currentPageNextY += lineHeight;
 }
 
+void ChapterHtmlSlimParser::addColumnToPage(std::unique_ptr<TextBlock> column, const uint32_t visibleOffset,
+                                            const size_t wordsConsumed) {
+  const int lineHeight = renderer.getLineHeight(fontId, lineCompression);
+  // The base is centred half a line height into the column and its ruby ends one em right of
+  // that centre; widen the column so the ruby stays inside it.
+  const int em = std::max(1, renderer.getVerticalEm(fontId));
+  const int rubyExtra = column->hasRuby() ? std::max(0, em - lineHeight / 2) : 0;
+  const int pitch = lineHeight + rubyExtra;
+
+  if (!currentPage) {
+    currentPage.reset(new Page());
+    currentPageNextY = 0;
+    currentPageVisibleOffsetSet = false;
+  }
+
+  if (currentPageNextY + pitch > viewportWidth && !currentPage->elements.empty()) {
+    setCurrentPageVisibleOffset(visibleOffset);
+    completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex, currentPageVisibleOffset);
+    completedPageCount++;
+    currentPage.reset(new Page());
+    currentPageNextY = 0;
+    currentPageVisibleOffsetSet = false;
+  }
+  setCurrentPageVisibleOffset(visibleOffset);
+
+  // Track consumed words to assign footnotes to the page containing their anchor
+  wordsExtractedInBlock += static_cast<int>(wordsConsumed);
+  auto footnoteIt = pendingFootnotes.begin();
+  while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
+    currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
+    ++footnoteIt;
+  }
+  pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
+
+  const int columnLeft = viewportWidth - currentPageNextY - pitch;
+  const int16_t centerX = static_cast<int16_t>(columnLeft + lineHeight / 2);
+  const int16_t top = column->getBlockStyle().leftInset();
+  for (const auto& link : column->takeLinkSpans()) {
+    if (!currentPage->addLink(link.href, static_cast<int16_t>(columnLeft), static_cast<int16_t>(top + link.x),
+                              static_cast<int16_t>(pitch), link.width)) {
+      LOG_DBG("EHP", "Dropped page link: %.48s", link.href);
+    }
+  }
+  auto pageLine = makeUniqueNoThrow<PageLine>(std::move(column), centerX, top);
+  if (!pageLine) {
+    LOG_ERR("EHP", "OOM: PageLine");
+    return;
+  }
+  currentPage->elements.push_back(std::move(pageLine));
+  currentPageNextY += pitch;
+}
+
 void ChapterHtmlSlimParser::makePages(const bool includeLastLine) {
   if (!currentTextBlock) {
     LOG_ERR("EHP", "!! No text block to make pages for !!");
@@ -2277,27 +2347,43 @@ void ChapterHtmlSlimParser::makePages(const bool includeLastLine) {
 
   const BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
 
-  // Calculate effective width accounting for horizontal margins/padding
+  // Calculate effective width accounting for horizontal margins/padding. In vertical text the
+  // same insets shorten the column, as logical start and end margins.
   const int horizontalInset = blockStyle.totalHorizontalInset();
+  const uint16_t inlineExtent = verticalMode ? viewportHeight : viewportWidth;
   const uint16_t effectiveWidth =
-      (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
+      (horizontalInset < inlineExtent) ? static_cast<uint16_t>(inlineExtent - horizontalInset) : inlineExtent;
 
-  currentTextBlock->layoutAndExtractLines(
-      renderer, fontId, effectiveWidth,
-      [this](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
-        // Apply top spacing before the paragraph (stored in pixels) only on the first line of this block
-        if (wordsExtractedInBlock == 0) {
-          const auto& blockStyle = currentTextBlock->getBlockStyle();
-          if (blockStyle.marginTop > 0) {
-            currentPageNextY += blockStyle.marginTop;
-          }
-          if (blockStyle.paddingTop > 0) {
-            currentPageNextY += blockStyle.paddingTop;
-          }
-        }
-        addLineToPage(std::move(textBlock), offset);
-      },
-      includeLastLine, characterSpacing, wordSpacingPercent);
+  // Apply top spacing before the paragraph (stored in pixels) only on the first line of this block
+  const auto applyTopSpacing = [this]() {
+    if (wordsExtractedInBlock == 0) {
+      const auto& blockStyle = currentTextBlock->getBlockStyle();
+      if (blockStyle.marginTop > 0) {
+        currentPageNextY += blockStyle.marginTop;
+      }
+      if (blockStyle.paddingTop > 0) {
+        currentPageNextY += blockStyle.paddingTop;
+      }
+    }
+  };
+
+  if (verticalMode) {
+    currentTextBlock->layoutVerticalColumns(
+        renderer, fontId, effectiveWidth,
+        [this, &applyTopSpacing](std::unique_ptr<TextBlock> column, const uint32_t offset, const size_t consumed) {
+          applyTopSpacing();
+          addColumnToPage(std::move(column), offset, consumed);
+        },
+        includeLastLine, characterSpacing);
+  } else {
+    currentTextBlock->layoutAndExtractLines(
+        renderer, fontId, effectiveWidth,
+        [this, &applyTopSpacing](std::unique_ptr<TextBlock> textBlock, const uint32_t offset) {
+          applyTopSpacing();
+          addLineToPage(std::move(textBlock), offset);
+        },
+        includeLastLine, characterSpacing, wordSpacingPercent);
+  }
 
   // Latch again after layout: extractLine can drop a whole line (TextBlock
   // arena OOM) during the call above, after the pre-layout latch ran, and the

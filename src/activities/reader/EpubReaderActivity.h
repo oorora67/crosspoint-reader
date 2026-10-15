@@ -155,6 +155,10 @@ class EpubReaderActivity final : public ReaderActivity {
   void openReaderMenu();
   // Toolbar reader menu (see Overlay above).
   bool usesToolbarMenu() const;
+  // Vertical (tategaki) layout: the Writing Mode setting, or Auto with a right-to-left spine.
+  bool usesVerticalLayout() const;
+  // The settings' render spec for this book (adds the writing mode).
+  ReaderRenderSpec bookRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight) const;
   void openOverlay(Overlay target);
   void closeOverlayToPage();
   void discardOverlayPage();

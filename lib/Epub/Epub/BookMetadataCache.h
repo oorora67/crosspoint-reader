@@ -17,6 +17,8 @@ class BookMetadataCache {
     std::string language;
     std::string coverItemHref;
     std::string textReferenceHref;
+    // <spine page-progression-direction="rtl">: pages turn right to left, as in vertical Japanese.
+    bool pageProgressionRtl = false;
   };
 
   struct SpineEntry {

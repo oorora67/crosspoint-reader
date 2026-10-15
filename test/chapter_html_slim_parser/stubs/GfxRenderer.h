@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 #include <Utf8.h>
+#include <VerticalText.h>
 
 #include <deque>
 #include <string>
@@ -52,6 +53,10 @@ class GfxRenderer {
     return trackingBetween(left, right, tracking);
   }
   int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 4; }
+  // Vertical text: a 16 px em; drawing is a no-op.
+  int getVerticalEm(int) const { return 16; }
+  void drawVerticalCell(int, int, int, int, const char*, VerticalText::CellKind,
+                        EpdFontFamily::Style = EpdFontFamily::REGULAR, bool = true) const {}
   bool isSdCardFont(int) const { return false; }
   void ensureSdCardFontReady(int, const char* const*, const size_t*, size_t, bool, bool, uint8_t) const {}
 };

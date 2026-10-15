@@ -93,6 +93,10 @@ void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const i
     return;
   }
 
+  if (vertical) {
+    renderer.drawLine(xPos + xOffset, yPos + yOffset, xPos + xOffset, yPos + yOffset + width - 1, thickness, true);
+    return;
+  }
   renderer.drawLine(xPos + xOffset, yPos + yOffset, xPos + xOffset + width - 1, yPos + yOffset, thickness, true);
 }
 
@@ -101,6 +105,7 @@ bool PageHorizontalRule::serialize(HalFile& file) {
   serialization::writePod(file, yPos);
   serialization::writePod(file, width);
   serialization::writePod(file, thickness);
+  serialization::writePod(file, static_cast<uint8_t>(vertical ? 1 : 0));
   return true;
 }
 
@@ -109,10 +114,12 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(HalFile& fil
   int16_t yPos = 0;
   uint16_t width = 0;
   uint8_t thickness = 0;
+  uint8_t vertical = 0;
   serialization::readPod(file, xPos);
   serialization::readPod(file, yPos);
   serialization::readPod(file, width);
   serialization::readPod(file, thickness);
+  serialization::readPod(file, vertical);
 
   if (width == 0 || thickness == 0) {
     LOG_ERR("PGE", "Deserialization failed: invalid horizontal rule metadata (width=%u thickness=%u)", width,
@@ -120,7 +127,7 @@ std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(HalFile& fil
     return nullptr;
   }
 
-  auto rule = makeUniqueNoThrow<PageHorizontalRule>(width, thickness, xPos, yPos);
+  auto rule = makeUniqueNoThrow<PageHorizontalRule>(width, thickness, xPos, yPos, vertical != 0);
   if (!rule) {
     LOG_ERR("PGE", "Deserialization failed: could not allocate PageHorizontalRule");
     return nullptr;

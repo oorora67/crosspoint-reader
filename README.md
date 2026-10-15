@@ -1,4 +1,6 @@
-# CrossPoint Reader
+# LibroraOS
+
+LibroraOS is a Japanese-focused build of CrossPoint Reader with vertical (tategaki) reading and a Japanese UI.
 
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
 
@@ -46,7 +48,7 @@ Check [our Devices page](https://crosspointreader.com/devices) for the full list
 
 - **Customization**: night mode, multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes including transparent overlays, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.
 
-- **Localization**: 34 UI languages and counting, including CJK font fallback and RTL support.
+- **Localization**: English and Japanese UI. The built-in UI fonts carry the Japanese UI's glyphs (BIZ UDGothic subset); other CJK text falls back to an SD card font.
 
 ### Coming soon:
 

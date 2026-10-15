@@ -2,8 +2,10 @@
 
 #include <SdCardFontRegistry.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <vector>
 
 // Reader font size is stored as an actual point size (see CrossPointSettings::
@@ -17,6 +19,18 @@ inline constexpr uint8_t BUILTIN_READER_POINT_SIZES[] = {12, 14, 16, 18};
 
 // Vector (.ttf/.otf) fonts offer every whole point size from 8 through 22.
 inline constexpr uint8_t VECTOR_READER_POINT_SIZES[] = {8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
+
+// Point sizes of the built-in UI fonts (SMALL, UI_10, UI_12).
+inline constexpr uint8_t UI_FONT_POINT_SIZES[] = {8, 10, 12};
+
+// True when an SD family can be the system (UI) font: a vector (TTF/OTF) family,
+// which renders at any size, or a .cpfont family with at least one
+// UI_FONT_POINT_SIZES file. Vector families exist only on PSRAM boards.
+inline bool isUiFontCandidate(const SdCardFontFamilyInfo& family) {
+  if (family.vector) return true;
+  return std::any_of(std::begin(UI_FONT_POINT_SIZES), std::end(UI_FONT_POINT_SIZES),
+                     [&family](const uint8_t pt) { return family.hasSize(pt); });
+}
 
 // Point sizes selectable for the active reader font, ascending: the vector set
 // or installed .cpfont sizes for a known SD family, otherwise the built-in set.

@@ -233,6 +233,13 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
   resetUi();
 }
 
+// Runs on the main task from loop(), which holds no RenderLock. ensureLoaded()
+// frees the old system font, so keep the render task off it meanwhile.
+void SettingsActivity::applyUiFontChange() {
+  RenderLock lock;
+  sdFontSystem.ensureLoaded(renderer);
+}
+
 bool SettingsActivity::handleCustomInput() {
   return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
 }
@@ -283,6 +290,7 @@ void SettingsActivity::toggleCurrentSetting() {
   const auto& setting = (*currentSettings)[selectedSetting];
   const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
+  const bool uiFontChanged = setting.nameId == StrId::STR_UI_FONT;
 
   if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
     openSleepTimeoutPicker();
@@ -317,11 +325,12 @@ void SettingsActivity::toggleCurrentSetting() {
     const uint8_t cur = setting.valueGetter();
     if (totalValues > 2) {
       const auto valueSetter = setting.valueSetter;
-      auto onSelect = [this, valueSetter, sleepScreenChanged, quickResumeTimeoutChanged](int idx) {
+      auto onSelect = [this, valueSetter, sleepScreenChanged, quickResumeTimeoutChanged, uiFontChanged](int idx) {
         valueSetter(idx);
         syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
         SETTINGS.saveToFile();
         rebuildSettingsLists();
+        if (uiFontChanged) applyUiFontChange();
       };
       if (!setting.enumStringValues.empty()) {
         optionPopup.show(setting.nameId, setting.enumStringValues, cur, std::move(onSelect));
@@ -410,6 +419,7 @@ void SettingsActivity::toggleCurrentSetting() {
                                [this](const ActivityResult&) {
                                  SETTINGS.saveToFile();
                                  rebuildSettingsLists();
+                                 applyUiFontChange();  // reload a released or deleted system font
                                });
         break;
       case SettingAction::TextSettings:
@@ -460,6 +470,7 @@ void SettingsActivity::toggleCurrentSetting() {
   SETTINGS.saveToFile();
   rebuildSettingsLists();
   applyUiSettingChange(setting.valuePtr);
+  if (uiFontChanged) applyUiFontChange();
   activeNav().selected = std::min(ringPos(), settingsCount);
 }
 

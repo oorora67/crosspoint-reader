@@ -61,6 +61,16 @@ ARABIC_INTERVALS=(
   --additional-intervals 0xFE80,0xFEFC  # Presentation Forms-B: core Arabic + Lam-Alef
 )
 
+# Japanese UI glyphs: a BIZ UDGothic subset holding only the characters of the
+# Japanese translation plus kana and CJK punctuation (subset-ui-japanese.py).
+# These ranges pick up exactly what the subset contains; the other fonts in the
+# stack have no CJK glyphs.
+CJK_UI_INTERVALS=(
+  --additional-intervals 0x3000,0x30FF  # CJK punctuation, hiragana, katakana
+  --additional-intervals 0x3400,0x9FFF  # kanji used by the UI
+  --additional-intervals 0xFF01,0xFF5E  # fullwidth ASCII
+)
+
 for size in ${UI_FONT_SIZES[@]}; do
   for style in ${UI_FONT_STYLES[@]}; do
     font_name="ubuntu_${size}_$(echo $style | tr '[:upper:]' '[:lower:]')"
@@ -73,9 +83,11 @@ for size in ${UI_FONT_SIZES[@]}; do
     # are filled from it while every glyph Ubuntu already has stays unchanged
     # (fontstack is ordered by descending priority).
     viet_path="../builtinFonts/source/Ubuntu/Ubuntu-Vietnamese-${style}.ttf"
+    japanese_path="../builtinFonts/source/BIZUDGothic/BIZUDGothic-${style}.ttf"
     output_path="../builtinFonts/${font_name}.h"
     python fontconvert.py $font_name $size $font_path $latin_fallback_path $hebrew_path $arabic_path $viet_path \
-      --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > $output_path
+      $japanese_path --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" "${CJK_UI_INTERVALS[@]}" \
+      > $output_path
     echo "Generated $output_path"
   done
 done
@@ -84,7 +96,9 @@ python fontconvert.py notosans_8_regular 8 \
   ../builtinFonts/source/NotoSans/NotoSans-Regular.ttf \
   ../builtinFonts/source/NotoSansHebrew/NotoSansHebrew-Regular.ttf \
   ../builtinFonts/source/NotoSansArabic/NotoSansArabic-Regular.ttf \
-  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" > ../builtinFonts/notosans_8_regular.h
+  ../builtinFonts/source/BIZUDGothic/BIZUDGothic-Regular.ttf \
+  --additional-intervals 0x05D0,0x05EA "${ARABIC_INTERVALS[@]}" "${CJK_UI_INTERVALS[@]}" \
+  > ../builtinFonts/notosans_8_regular.h
 
 echo ""
 echo "Running compression verification..."

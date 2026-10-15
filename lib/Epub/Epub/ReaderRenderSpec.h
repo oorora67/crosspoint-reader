@@ -24,6 +24,8 @@ struct ReaderRenderSpec {
   bool embeddedStyle = true;
   uint8_t imageRendering = 0;
   bool focusReadingEnabled = false;
+  // Vertical (tategaki) layout: columns top to bottom, pages turn right to left.
+  bool verticalMode = false;
 };
 
 // Stable signature for clipping anchors. Page-local word ordinals are valid
@@ -46,5 +48,7 @@ inline uint32_t readerRenderSpecSignature(const ReaderRenderSpec& spec) {
   mix(spec.embeddedStyle);
   mix(spec.imageRendering);
   mix(spec.focusReadingEnabled);
+  // Mixed only when set, so horizontal anchors saved before vertical writing stay valid.
+  if (spec.verticalMode) mix(1);
   return signature == 0 ? 1 : signature;
 }

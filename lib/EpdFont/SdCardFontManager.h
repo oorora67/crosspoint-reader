@@ -11,7 +11,9 @@ struct SdCardFontFileInfo;
 
 class SdCardFontManager {
  public:
-  SdCardFontManager() = default;
+  // `idSalt` keeps font ids distinct when two managers load the same file
+  // (reader font and system font from one family).
+  explicit SdCardFontManager(uint32_t idSalt = 0) : idSalt_(idSalt) {}
   ~SdCardFontManager();
   SdCardFontManager(const SdCardFontManager&) = delete;
   SdCardFontManager& operator=(const SdCardFontManager&) = delete;
@@ -43,18 +45,22 @@ class SdCardFontManager {
   // 0 if nothing loaded.
   uint8_t currentPointSize() const { return loadedPointSize_; };
 
+  // Number of loaded .cpfont files (reader size plus any extra sizes).
+  size_t loadedCount() const { return loaded_.size(); }
+
  private:
   struct LoadedFont {
     SdCardFont* font;  // heap-allocated, owned
     int fontId;
     uint8_t size;
   };
-  static int computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize);
+  int computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize) const;
 
   // Load+register a single .cpfont file and append it to loaded_.
   // Returns the font id, or 0 on failure (allocation, read, or id collision).
   int loadFile(const SdCardFontFileInfo& file, const char* familyName, GfxRenderer& renderer);
 
+  uint32_t idSalt_;
   std::string loadedFamilyName_;
   uint8_t loadedPointSize_ = 0;
   std::vector<LoadedFont> loaded_;

@@ -256,6 +256,8 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "RoundedRaff" - A rounded theme with additional visual styling
 
+- **System Font**: Font for menus, lists and headers, set separately from the reading font. "Built-in" (default) uses the built-in UI fonts; SD card fonts are also listed: `.cpfont` families that ship 8, 10 or 12 pt files, and direct TTF/OTF/TTC fonts on boards that support them (see [System Font](docs/sd-card-fonts.md#system-font)).
+
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   
   - "OFF" (default) - Disable the fix
@@ -297,6 +299,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Text Anti-Aliasing**: Whether to show smooth grey edges (anti-aliasing) on text in reading mode. Note this slows down page turns slightly.
 
+- **Writing Mode**: How EPUB text runs; options are "Auto" (default), "Horizontal" or "Vertical". "Vertical" sets text in top-to-bottom columns read right to left (Japanese tategaki): ruby sits to the right of the text, short numbers are set upright in one cell, and Latin words turn sideways. Pages advance to the left: the **Left** and **Right** front buttons swap roles, and a tap on the left side or a left-to-right swipe turns forward. "Auto" uses vertical layout for Japanese, Chinese and Korean books whose EPUB declares a right-to-left page progression. Word selection, dictionary lookup and clippings are not available in vertical layout. Japanese text needs a font with Japanese glyphs, such as an SD card font (see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card)).
 - **Images**: Whether to display embedded images (JPG/PNG) found in EPUB files; options are "ON" (default) or "OFF".
 
 - **Focus Reading**: Bolds the first part of each word to create visual fixation points, similar to Bionic Reading. This can help improve reading speed and focus; options are "ON" or "OFF" (default).
@@ -345,7 +348,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Check for updates**: Check for Crosspoint firmware updates over Wi-Fi. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card.
 
-- **Language**: Set the UI language. CrossPoint supports 32 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, European Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Arabic, Slovak, Bosnian, Vietnamese, Norwegian Bokmål, Indonesian, and Orangutan.
+- **Language**: Set the UI language: English or Japanese (日本語). The built-in UI fonts include every character the Japanese UI uses, plus all kana, so no extra font is needed. Kanji in book titles and file names that the UI does not use need an SD card font with Japanese glyphs (see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card)); without one they show as empty boxes.
 
 - **Manage Fonts**: Browse, download, and manage custom font families installed from the SD card. See [Custom Fonts (SD Card)](#38-custom-fonts-sd-card) for more information.
 
@@ -599,7 +602,7 @@ There are three ways to install fonts:
 2. **Upload via web interface:** While in **File Transfer** mode, open the web UI and use the **Fonts** tab to upload `.cpfont` files. The Fonts tab does not accept TTF/OTF/TTC files.
 3. **Manual SD card copy:** Copy `.cpfont` families from the [crosspoint-fonts repository](https://github.com/crosspoint-reader/crosspoint-fonts) to `/.fonts/` or `/fonts/`. If your device have external RAM, you can also copy TTF/OTF/TTC files there without conversion.
 
-Once installed, custom fonts appear in **Settings → Reader → Font Family** alongside the built-in fonts.
+Once installed, custom fonts appear in **Settings → Reader → Font Family** alongside the built-in fonts. Fonts with UI sizes, and direct TTF/OTF/TTC fonts, can also be chosen under **Settings → Display → System Font**.
 
 See [docs/sd-card-fonts.md](./docs/sd-card-fonts.md) for full installation details and SD card folder structure.
 
@@ -617,6 +620,8 @@ Once you have opened a book, the button layout changes to facilitate reading.
 | **Next Page**     | Press **Right** _or_ **Side Down** |
 
 The role of the side buttons can be swapped in the **[Controls Settings](#363-controls)**.
+
+In books set vertically (see **Writing Mode**) pages advance to the left, so the **Left** and **Right** front buttons swap roles, here and for chapter navigation.
 
 If the **Short Power Button Click** setting is set to "Page Turn", you can also turn to the next page by briefly pressing the Power button.
 
@@ -662,7 +667,7 @@ CrossPoint renders text using the following Unicode character blocks, enabling s
 * **Cyrillic Script (Standard and Extended):** Covers Russian, Ukrainian, Belarusian, Bulgarian, Serbian, Macedonian, Kazakh, Kyrgyz, Mongolian, and others.
 * **Vietnamese:** Supported via extended Latin glyph coverage in the built-in reader fonts.
 
-The UI includes Arabic and Hebrew (menus use built-in fonts with presentation-form coverage). Built-in **reader** fonts do not cover Chinese, Japanese, Korean, Arabic, Greek, Hebrew, or Farsi for book text. **CJK, Hebrew, Arabic, Greek, and other extended scripts can be enabled for reading by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
+The UI includes Arabic and Hebrew (menus use built-in fonts with presentation-form coverage) and the characters of the Japanese UI (a BIZ UDGothic subset). Built-in **reader** fonts do not cover Chinese, Japanese, Korean, Arabic, Greek, Hebrew, or Farsi for book text. **CJK, Hebrew, Arabic, Greek, and other extended scripts can be enabled for reading by installing custom SD card fonts** — see [Custom Fonts (SD Card)](#38-custom-fonts-sd-card).
 
 ---
 

@@ -15,6 +15,8 @@ class FontCacheManager;
 class SdCardFont;
 class TtfEpdFont;
 
+#include <VerticalText.h>
+
 #include <array>
 #include <cstring>
 #include <map>
@@ -105,9 +107,16 @@ class GfxRenderer {
   // app-level SD font setup when an SD family is loaded. See resolveTextFontId().
   std::map<int, int> fallbackFontMap_;
 
-  // If `text` contains a CJK codepoint that `fontId` cannot render and `fontId`
-  // has a registered fallback, returns the fallback id; otherwise returns
-  // fontId unchanged. The whole string is routed as a unit so each draw/measure
+  // System font overrides: built-in UI font id -> the same-size SD font the
+  // user chose as the system font. Unlike fallbackFontMap_, an override takes
+  // every string it can render; a string with a codepoint only the built-in
+  // font or the fallback has goes to that font instead. See resolveTextFontId().
+  std::map<int, int> uiFontOverrideMap_;
+
+  // Returns the system font override for `fontId` when no codepoint of `text`
+  // needs another font. Otherwise, if `text` contains a codepoint that `fontId`
+  // cannot render and its registered fallback can, returns the fallback id;
+  // otherwise returns fontId unchanged. The whole string is routed as a unit so each draw/measure
   // call stays single-font (consistent bit depth, metrics, wrapping).
   int resolveTextFontId(int fontId, const char* text, EpdFontFamily::Style style) const;
 
@@ -196,6 +205,9 @@ class GfxRenderer {
   // setFallbackFont maps a primary UI font id to an SD font id of the same size.
   void setFallbackFont(int primaryFontId, int fallbackFontId) { fallbackFontMap_[primaryFontId] = fallbackFontId; }
   void clearFallbackFonts() { fallbackFontMap_.clear(); }
+  // Register/clear system font overrides (see uiFontOverrideMap_).
+  void setUiFontOverride(int primaryFontId, int overrideFontId) { uiFontOverrideMap_[primaryFontId] = overrideFontId; }
+  void clearUiFontOverrides() { uiFontOverrideMap_.clear(); }
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
@@ -359,6 +371,14 @@ class GfxRenderer {
   void drawTextRotated90CW(int fontId, int x, int y, const char* text, bool black = true,
                            EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getTextHeight(int fontId) const;
+
+  // Vertical (tategaki) text. The em is the cell size along a column: the advance of an
+  // ideographic space, or the font's ascender plus descender when it has no CJK glyphs.
+  int getVerticalEm(int fontId) const;
+  // Draws one cell of a column whose centre line is centerX; top is the cell's top edge and
+  // em its size. SUP/SUB styles draw at half size (ruby); pass the halved em with them.
+  void drawVerticalCell(int fontId, int centerX, int top, int em, const char* text, VerticalText::CellKind kind,
+                        EpdFontFamily::Style style = EpdFontFamily::REGULAR, bool black = true) const;
 
   // Grayscale functions
   void setRenderMode(RenderMode mode);

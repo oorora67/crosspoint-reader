@@ -12,6 +12,7 @@
 #include <Utf8.h>
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "../Memory/Memory.h"
 #include "FontCacheManager.h"
@@ -258,34 +259,50 @@ void GfxRenderer::insertFont(const int fontId, EpdFontFamily font) {
 }
 
 int GfxRenderer::resolveTextFontId(const int fontId, const char* text, const EpdFontFamily::Style style) const {
-  if (fallbackFontMap_.empty() || text == nullptr || *text == '\0') {
+  if (text == nullptr || *text == '\0') {
     return fontId;
   }
+  const auto ovIt = uiFontOverrideMap_.find(fontId);
   const auto fbIt = fallbackFontMap_.find(fontId);
-  if (fbIt == fallbackFontMap_.end()) {
-    return fontId;  // no fallback registered for this font
+  if (ovIt == uiFontOverrideMap_.end() && fbIt == fallbackFontMap_.end()) {
+    return fontId;  // nothing registered for this font
   }
-  const int fallbackFontId = fbIt->second;
-  const auto fontIt = fontMap.find(fontId);
-  const auto fallbackIt = fontMap.find(fallbackFontId);
-  if (fontIt == fontMap.end() || fallbackIt == fontMap.end()) {
-    return fontId;  // unknown primary or fallback not loaded — let the caller handle it
+  const auto primaryIt = fontMap.find(fontId);
+  if (primaryIt == fontMap.end()) {
+    return fontId;  // unknown primary — let the caller handle it
   }
-  const EpdFontFamily& primary = fontIt->second;
-  const EpdFontFamily& fallback = fallbackIt->second;
+  const auto findLoaded = [this](const int id) -> const EpdFontFamily* {
+    const auto it = fontMap.find(id);
+    return it == fontMap.end() ? nullptr : &it->second;
+  };
+  const EpdFontFamily& primary = primaryIt->second;
+  const EpdFontFamily* sysFont = ovIt == uiFontOverrideMap_.end() ? nullptr : findLoaded(ovIt->second);
+  const EpdFontFamily* fallback = fbIt == fallbackFontMap_.end() ? nullptr : findLoaded(fbIt->second);
+
+  // The system font takes the string unless it lacks a codepoint another font
+  // could draw. Otherwise redirect to the fallback whenever the primary cannot
+  // draw a codepoint the fallback can — Greek, Cyrillic, CJK or any script the
+  // built-in UI fonts lack. ASCII never needs the fallback (every registered
+  // font covers it), keeping Latin strings on the fast path.
+  bool useOverride = sysFont != nullptr;
+  bool useFallback = false;
   const char* cursor = text;
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
-    // Redirect whenever the primary font cannot draw a codepoint the fallback
-    // can — otherwise the string renders with holes. Not just CJK: Greek,
-    // Cyrillic, or any script the built-in UI fonts lack qualifies. ASCII is
-    // skipped outright (every registered font covers it), keeping Latin
-    // strings on the fast path, and a partial-coverage fallback is not worth
-    // dragging the whole string into for glyphs it would also miss.
-    if (cp >= 0x80 && !primary.hasCodepoint(cp, style) && fallback.hasCodepoint(cp, style)) {
-      return fallbackFontId;
+    const bool inPrimary = cp < 0x80 || primary.hasCodepoint(cp, style);
+    const bool sysMissing = useOverride && !sysFont->hasCodepoint(cp, style);
+    // The fallback lookup matters only when the primary or the system font misses cp.
+    const bool inFallback = fallback && cp >= 0x80 && (!inPrimary || sysMissing) && fallback->hasCodepoint(cp, style);
+    if (sysMissing && (inPrimary || inFallback)) {
+      useOverride = false;
     }
+    if (!inPrimary && inFallback) {
+      useFallback = true;
+    }
+    if (!useOverride && (useFallback || fallback == nullptr)) break;
   }
+  if (useOverride) return ovIt->second;
+  if (useFallback) return fbIt->second;
   return fontId;
 }
 
@@ -294,37 +311,43 @@ void GfxRenderer::prewarmFallbackText(const int fontId, const TextGetter getter,
   if (getter == nullptr || textCount == 0) {
     return;
   }
-  // Resolve the fallback id from the first string that actually redirects; a
-  // screen with no non-Latin strings resolves nothing and this is a no-op.
-  int fallbackFontId = fontId;
-  for (uint32_t i = 0; i < textCount && fallbackFontId == fontId; i++) {
+  // Collect the fonts strings redirect to: a system font override, a fallback,
+  // or both. A screen with no redirected strings resolves nothing (no-op).
+  int targets[2] = {fontId, fontId};
+  int targetCount = 0;
+  for (uint32_t i = 0; i < textCount && targetCount < 2; i++) {
     const char* text = getter(ctx, i);
     if (text == nullptr || *text == '\0') continue;
-    fallbackFontId = resolveTextFontId(fontId, text, style);
-  }
-  if (fallbackFontId == fontId) {
-    return;
-  }
-  const auto sdIt = sdCardFonts_.find(fallbackFontId);
-  if (sdIt == sdCardFonts_.end()) {
-    return;
+    const int resolved = resolveTextFontId(fontId, text, style);
+    if (resolved != fontId && (targetCount == 0 || resolved != targets[0])) targets[targetCount++] = resolved;
   }
   const uint8_t styleMask = static_cast<uint8_t>(1u << (static_cast<uint8_t>(style) & 0x03));
-  // Append one virtual index for U+2026: truncation measures every long row
-  // as "label…", so an ellipsis missing from the batch forces a union rebuild
-  // on the first repaint.
-  struct WrapCtx {
-    TextGetter getter;
-    const void* ctx;
-    uint32_t count;
-  } wrap{getter, ctx, textCount};
-  const auto withEllipsis = [](const void* wc, uint32_t i) -> const char* {
-    const auto* w = static_cast<const WrapCtx*>(wc);
-    return i < w->count ? w->getter(w->ctx, i) : "\xe2\x80\xa6";
-  };
-  // loadKernLig=false: see ensureSdGlyphsResident below.
-  sdIt->second->prewarm(withEllipsis, &wrap, textCount + 1, styleMask, /*metadataOnly=*/false,
-                        /*loadKernLig=*/false);
+  for (int t = 0; t < targetCount; t++) {
+    const auto sdIt = sdCardFonts_.find(targets[t]);
+    if (sdIt == sdCardFonts_.end()) continue;
+    // Batch only the strings that resolve to this font. Append one virtual
+    // index for U+2026: truncation measures every long row as "label…", so an
+    // ellipsis missing from the batch forces a union rebuild on the first repaint.
+    struct WrapCtx {
+      const GfxRenderer* renderer;
+      TextGetter getter;
+      const void* ctx;
+      uint32_t count;
+      int fontId;
+      int target;
+      EpdFontFamily::Style style;
+    } wrap{this, getter, ctx, textCount, fontId, targets[t], style};
+    const auto forTarget = [](const void* wc, uint32_t i) -> const char* {
+      const auto* w = static_cast<const WrapCtx*>(wc);
+      if (i >= w->count) return "\xe2\x80\xa6";
+      const char* text = w->getter(w->ctx, i);
+      if (text == nullptr || *text == '\0') return nullptr;
+      return w->renderer->resolveTextFontId(w->fontId, text, w->style) == w->target ? text : nullptr;
+    };
+    // loadKernLig=false: see ensureSdGlyphsResident below.
+    sdIt->second->prewarm(forTarget, &wrap, textCount + 1, styleMask, /*metadataOnly=*/false,
+                          /*loadKernLig=*/false);
+  }
 }
 
 void GfxRenderer::prewarmFallbackText(const int fontId, const char* text, const EpdFontFamily::Style style) const {
@@ -345,8 +368,9 @@ void GfxRenderer::ensureSdGlyphsResident(const int fontId, const char* text, con
   }
   // SUP/SUB bits don't select a distinct .cpfont style bitstream — mask to the
   // base style. resolveStyleMask() inside prewarm folds absent styles.
-  // loadKernLig=false: redirected fallback strings (non-Latin titles,
-  // filenames) have no useful kern pairs, and the ~3KB class-table load plus
+  // loadKernLig=false: redirected UI strings (fallback titles and filenames,
+  // or every string of an SD system font) are drawn without kerning: the ~3KB
+  // class-table load plus
   // per-rebuild mini-matrix build cost heap and SD time exactly where these
   // strings live (heap-tight UI screens). The reader's PrewarmScope path keeps
   // kern; a kern-wanting request that subset-hits a kern-free mini tops the
@@ -444,7 +468,9 @@ static AlignedMemRect screenRectToAlignedMemRect(GfxRenderer::Orientation orient
   return out;
 }
 
-enum class TextRotation { None, Rotated90CW };
+// Rotated90CW reads bottom to top (side labels). Sideways reads top to bottom with glyph tops facing
+// right, as Latin text in a vertical column; its cursor X is the baseline and cursor Y the pen.
+enum class TextRotation { None, Rotated90CW, Sideways };
 
 // Shared glyph rendering logic for normal and rotated text.
 // Coordinate mapping and cursor advance direction are selected at compile time via the template parameter.
@@ -456,15 +482,21 @@ enum class TextRotation { None, Rotated90CW };
 // The advance width is also halved in drawText() so layout reserves exactly the right
 // horizontal space for the scaled glyph.
 static void renderCharScaled(const GfxRenderer& renderer, const EpdFontFamily& fontFamily, const uint32_t cp,
-                             int cursorX, int cursorY, const bool pixelState, const EpdFontFamily::Style style) {
+                             int cursorX, int cursorY, const bool pixelState, const EpdFontFamily::Style style,
+                             const bool sideways = false) {
   EpdGlyph solidFallback;
   const EpdGlyph* glyph = fontFamily.getGlyphMetrics(cp, solidFallback, style);
   if (!glyph) return;
 
   const EpdFontData* fontData = fontFamily.getData(style);
   if (glyph == &solidFallback) {
-    renderer.fillRect(cursorX + glyph->left / 2, cursorY - glyph->top / 2, (glyph->width + 1) / 2,
-                      (glyph->height + 1) / 2, pixelState);
+    const int w = (glyph->width + 1) / 2;
+    const int h = (glyph->height + 1) / 2;
+    if (sideways) {
+      renderer.fillRect(cursorX + glyph->top / 2 - h + 1, cursorY + glyph->left / 2, h, w, pixelState);
+    } else {
+      renderer.fillRect(cursorX + glyph->left / 2, cursorY - glyph->top / 2, w, h, pixelState);
+    }
     return;
   }
   const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
@@ -478,6 +510,14 @@ static void renderCharScaled(const GfxRenderer& renderer, const EpdFontFamily& f
   // pixel offset from the (already-shifted) cursor position.
   const int baseX = cursorX + glyph->left / 2;
   const int baseY = cursorY - glyph->top / 2;
+  // Sideways: cursorX is the baseline and cursorY the pen; glyph rows run right to left.
+  const auto plot = [&](const int dstX, const int dstY) {
+    if (sideways) {
+      renderer.drawPixel(cursorX + glyph->top / 2 - dstY, cursorY + glyph->left / 2 + dstX, pixelState);
+    } else {
+      renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
+    }
+  };
 
   if (fontData->is2Bit) {
     // 2-bit packed format: 4 pixels per byte, MSB first, 2 bits per pixel.
@@ -498,7 +538,7 @@ static void renderCharScaled(const GfxRenderer& renderer, const EpdFontFamily& f
           }
         }
         if (maxRaw >= 2 || coverage >= 2) {
-          renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
+          plot(dstX, dstY);
         }
       }
     }
@@ -520,7 +560,7 @@ static void renderCharScaled(const GfxRenderer& renderer, const EpdFontFamily& f
           }
         }
         if (hasInk) {
-          renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
+          plot(dstX, dstY);
         }
       }
     }
@@ -549,7 +589,12 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   // Tiled-grayscale band culling: if this glyph's physical y-extent is entirely
   // outside the active strip, skip it before the expensive bitmap decode. This
   // is what makes per-band re-rendering cheap. No-op outside strip mode.
-  if constexpr (rotation == TextRotation::Rotated90CW) {
+  if constexpr (rotation == TextRotation::Sideways) {
+    if (!renderer.glyphIntersectsStrip(cursorX + top - (height - 1), cursorY + left, cursorX + top,
+                                       cursorY + left + width - 1)) {
+      return;
+    }
+  } else if constexpr (rotation == TextRotation::Rotated90CW) {
     const int ob = cursorX + fontData->ascender - top;
     const int ib = cursorY - left;
     if (!renderer.glyphIntersectsStrip(ob, ib - (width - 1), ob + height - 1, ib)) {
@@ -564,7 +609,9 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   }
 
   if (glyph == &solidFallback) {
-    if constexpr (rotation == TextRotation::Rotated90CW) {
+    if constexpr (rotation == TextRotation::Sideways) {
+      renderer.fillRect(cursorX + top - height + 1, cursorY + left, height, width, pixelState);
+    } else if constexpr (rotation == TextRotation::Rotated90CW) {
       renderer.fillRect(cursorX + fontData->ascender - top, cursorY - left - width + 1, height, width, pixelState);
     } else {
       renderer.fillRect(cursorX + left, cursorY - top, width, height, pixelState);
@@ -578,7 +625,9 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   // along each glyph axis. Rotated text runs glyph x up the screen and glyph
   // y to the right.
   glyphBitmap::Frame frame;
-  if constexpr (rotation == TextRotation::Rotated90CW) {
+  if constexpr (rotation == TextRotation::Sideways) {
+    frame = {cursorX + top, cursorY + left, 0, 1, -1, 0};
+  } else if constexpr (rotation == TextRotation::Rotated90CW) {
     frame = {cursorX + fontData->ascender - top, cursorY - left, 0, -1, 1, 0};
   } else {
     frame = {cursorX + left, cursorY - top, 1, 0, 0, 1};
@@ -2302,6 +2351,130 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
     prevCp = cp;
+  }
+}
+
+int GfxRenderer::getVerticalEm(const int fontId) const {
+  const auto fontIt = fontMap.find(fontId);
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", fontId);
+    return 0;
+  }
+  if (fontIt->second.hasCodepoint(0x3000)) {
+    const int em = getTextAdvanceX(fontId, "\xE3\x80\x80", EpdFontFamily::REGULAR);
+    if (em > 0) return em;
+  }
+  const EpdFontData* data = fontIt->second.getData(EpdFontFamily::REGULAR);
+  return std::max(1, data->ascender + std::abs(data->descender));
+}
+
+namespace {
+// Japanese fonts put the ideographic em box 0.88 em above and 0.12 em below the baseline
+// (the OpenType 'ideo' baseline sits at -0.12 em).
+constexpr int ideographicBaseline(const int em) { return em * 22 / 25; }
+}  // namespace
+
+void GfxRenderer::drawVerticalCell(const int fontId, const int centerX, const int top, const int em, const char* text,
+                                   const VerticalText::CellKind kind, const EpdFontFamily::Style style,
+                                   const bool black) const {
+  if (text == nullptr || *text == '\0') {
+    return;
+  }
+  const int resolvedFontId = resolveTextFontId(fontId, text, style);
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) {
+    fontCacheManager_->recordText(text, resolvedFontId, style);
+    return;
+  }
+  if (resolvedFontId != fontId) {
+    ensureSdGlyphsResident(resolvedFontId, text, style, false);
+  }
+  const auto fontIt = fontMap.find(resolvedFontId);
+  if (fontIt == fontMap.end()) {
+    LOG_ERR("GFX", "Font %d not found", resolvedFontId);
+    return;
+  }
+  const auto& font = fontIt->second;
+  const bool half = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
+  const int baseline = top + ideographicBaseline(em);
+  // Moves the em box of a glyph drawn sideways so it fills the column: the box spans
+  // 0.12 em left of the baseline to 0.88 em right of it.
+  const int sidewaysBaseline = centerX - em / 2 + (em - ideographicBaseline(em));
+
+  switch (kind) {
+    case VerticalText::CellKind::Upright:
+    case VerticalText::CellKind::SmallKana:
+    case VerticalText::CellKind::Combined: {
+      EpdFontFamily::Style drawStyle = style;
+      int width = getTextAdvanceX(resolvedFontId, text, drawStyle);
+      int drawBaseline = baseline;
+      // A combined run wider than the cell drops to half size, centred in the cell.
+      if (kind == VerticalText::CellKind::Combined && !half && width > em + em / 8) {
+        drawStyle = static_cast<EpdFontFamily::Style>(style | EpdFontFamily::SUP);
+        width = getTextAdvanceX(resolvedFontId, text, drawStyle);
+        drawBaseline = top + em / 4 + ideographicBaseline(em / 2);
+      }
+      int x = centerX - width / 2;
+      if (kind == VerticalText::CellKind::SmallKana) {
+        x += em / 8;
+        drawBaseline -= em / 8;
+      }
+      drawText(resolvedFontId, x, drawBaseline - getFontAscenderSize(resolvedFontId), text, black, drawStyle);
+      return;
+    }
+    case VerticalText::CellKind::Corner: {
+      // The horizontal glyph sits in the lower-left quarter; centre its ink in the upper-right one.
+      const char* cursor = text;
+      const uint32_t cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor));
+      EpdGlyph solidFallback;
+      const EpdGlyph* glyph = font.getGlyphMetrics(cp, solidFallback, style);
+      if (!glyph) return;
+      const int targetX = centerX + em / 4;
+      const int targetY = top + em / 4;
+      if (half) {
+        renderCharScaled(*this, font, cp, targetX - glyph->left / 2 - glyph->width / 4,
+                         targetY + glyph->top / 2 - glyph->height / 4, black, style);
+      } else {
+        renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, targetX - glyph->left - glyph->width / 2,
+                                           targetY + glyph->top - glyph->height / 2, black, style);
+      }
+      return;
+    }
+    case VerticalText::CellKind::Rotated:
+    case VerticalText::CellKind::Sideways: {
+      // Rotated cells hold one full-width glyph; sideways runs are Latin and centre on the
+      // font's own ascender and descender instead of the ideographic box.
+      int baselineX = sidewaysBaseline;
+      if (kind == VerticalText::CellKind::Sideways) {
+        const EpdFontData* data = font.getData(style);
+        const int scale = half ? 2 : 1;
+        baselineX = centerX - (data->ascender - std::abs(data->descender)) / (2 * scale);
+      }
+      const char* cursor = text;
+      int penY = top;
+      int32_t prevAdvanceFP = 0;
+      uint32_t prevCp = 0;
+      uint32_t cp;
+      while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&cursor)))) {
+        if (utf8IsCombiningMark(cp) || BidiUtils::isTransparentMark(cp)) {
+          continue;
+        }
+        cp = font.applyLigatures(cp, cursor, style);
+        if (prevCp != 0) {
+          penY += fp4::toPixel(prevAdvanceFP + font.getKerning(prevCp, cp, style));
+        }
+        EpdGlyph solidFallback;
+        const EpdGlyph* glyph = font.getGlyphMetrics(cp, solidFallback, style);
+        prevAdvanceFP = glyph ? glyph->advanceX : 0;
+        if (half) {
+          prevAdvanceFP = (prevAdvanceFP + 1) / 2;
+          renderCharScaled(*this, font, cp, baselineX, penY, black, style, true);
+        } else {
+          renderCharImpl<TextRotation::Sideways>(*this, renderMode, font, cp, baselineX, penY, black, style);
+        }
+        prevCp = cp;
+      }
+      return;
+    }
   }
 }
 
