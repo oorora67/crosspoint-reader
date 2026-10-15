@@ -2167,6 +2167,8 @@ int GfxRenderer::getPunctuationTrim(const int fontId, const uint32_t leftCp, con
   // Every trimmed mark lies in U+3001..U+FF60: three UTF-8 bytes.
   const char buf[4] = {static_cast<char>(0xE0 | (leftCp >> 12)), static_cast<char>(0x80 | ((leftCp >> 6) & 0x3F)),
                        static_cast<char>(0x80 | (leftCp & 0x3F)), '\0'};
+  const auto fontIt = fontMap.find(resolveTextFontId(fontId, buf, style));
+  if (fontIt == fontMap.end() || !punctuationTrims(fontIt->second, leftCp, rightCp, style)) return 0;
   return getTextAdvanceX(fontId, buf, style) / 2;
 }
 
@@ -2174,8 +2176,15 @@ int32_t GfxRenderer::pairAdjustFP(const EpdFontFamily& font, const uint32_t prev
                                   const EpdFontFamily::Style style, const int32_t prevAdvanceFP) const {
   if (!kerningEnabled_) return 0;
   int32_t adjustFP = font.getKerning(prevCp, cp, style);  // 4.4 fixed point, same scale as 12.4 advances
-  if (PunctuationSpacing::trimsHalfBetween(prevCp, cp)) adjustFP -= prevAdvanceFP / 2;
+  if (punctuationTrims(font, prevCp, cp, style)) adjustFP -= prevAdvanceFP / 2;
   return adjustFP;
+}
+
+// Missing glyphs draw as replacement boxes, which have no blank half to remove.
+bool GfxRenderer::punctuationTrims(const EpdFontFamily& font, const uint32_t leftCp, const uint32_t rightCp,
+                                   const EpdFontFamily::Style style) {
+  return PunctuationSpacing::trimsHalfBetween(leftCp, rightCp) && font.hasCodepoint(leftCp, style) &&
+         font.hasCodepoint(rightCp, style);
 }
 
 int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style, const int8_t tracking,
@@ -2222,7 +2231,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
         }
         trackingPx += trackingBetween(prevCp, cp, tracking);
         // Pair kerning needs kern data, not loaded here; the punctuation trim does not.
-        if (kerningEnabled_ && PunctuationSpacing::trimsHalfBetween(prevCp, cp)) widthFP -= prevAdvFP / 2;
+        if (kerningEnabled_ && punctuationTrims(font, prevCp, cp, style)) widthFP -= prevAdvFP / 2;
         prevCp = cp;
         prevAdvFP = isSupSub ? (advFP + 1) / 2 : advFP;
       }

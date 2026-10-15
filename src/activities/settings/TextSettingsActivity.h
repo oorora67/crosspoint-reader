@@ -24,7 +24,6 @@ class TextSettingsActivity final : public UiTabListActivity {
                        Tab initialTab = Tab::Family);
 
   void onEnter() override;
-  void onExit() override;
   void render(RenderLock&&) override;
 
  private:
@@ -103,8 +102,6 @@ class TextSettingsActivity final : public UiTabListActivity {
 
   Tab tab_;
   int currentFamilyIndex_ = 0;
-  // Renderer kerning state on entry; the preview follows SETTINGS.kerning meanwhile.
-  bool kerningOnEnter_ = true;
   int currentSizeIndex_ = 0;
 
   ThemeMetrics metrics_ = {};

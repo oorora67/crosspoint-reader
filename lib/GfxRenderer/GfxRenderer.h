@@ -127,6 +127,9 @@ class GfxRenderer {
   // `prevAdvanceFP`). 0 when kerning is disabled.
   int32_t pairAdjustFP(const EpdFontFamily& font, uint32_t prevCp, uint32_t cp, EpdFontFamily::Style style,
                        int32_t prevAdvanceFP) const;
+  // True when PunctuationSpacing trims the pair and `font` draws both marks.
+  static bool punctuationTrims(const EpdFontFamily& font, uint32_t leftCp, uint32_t rightCp,
+                               EpdFontFamily::Style style);
 
   // Batch-load `text`'s glyphs into an SD-card font's resident mini tables
   // before a per-glyph measure/draw loop runs. Called when resolveTextFontId

@@ -67,18 +67,10 @@ TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputMan
                                            const SdCardFontRegistry* registry, Tab initialTab)
     : UiTabListActivity("TextSettings", renderer, mappedInput), registry_(registry), tab_(initialTab) {}
 
-void TextSettingsActivity::onExit() {
-  renderer.setKerningEnabled(kerningOnEnter_);
-  UiTabListActivity::onExit();
-}
-
 const char* TextSettingsActivity::tabLabel(const int index) const { return I18N.get(TAB_NAME_IDS[index]); }
 
 void TextSettingsActivity::onEnter() {
   UiTabListActivity::onEnter();
-  // The preview lays out and draws with the renderer's kerning flag.
-  kerningOnEnter_ = renderer.isKerningEnabled();
-  renderer.setKerningEnabled(SETTINGS.kerning != 0);
 
   metrics_ = UITheme::getInstance().getMetrics();
   afterHeader = metrics_.topPadding + metrics_.headerHeight + metrics_.verticalSpacing;
@@ -290,8 +282,13 @@ void TextSettingsActivity::drawChrome() {
   const char* sizeName = (currentSizeIndex_ >= 0 && currentSizeIndex_ < static_cast<int>(sizes_.size()))
                              ? sizes_[currentSizeIndex_].name.c_str()
                              : "";
+  // The preview lays out and draws with the Kerning setting; the rest of this
+  // screen keeps the caller's kerning state.
+  const bool kerningBefore = renderer.isKerningEnabled();
+  renderer.setKerningEnabled(SETTINGS.kerning != 0);
   textsettings::renderPreview(renderer, previewLayout_, metrics_.previewPadding, metrics_.verticalSpacing, afterHeader,
                               previewHeight, familyName, sizeName);
+  renderer.setKerningEnabled(kerningBefore);
 }
 
 void TextSettingsActivity::drawFooter() {
@@ -502,12 +499,9 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
-    case StyleRow::Kerning: {
+    case StyleRow::Kerning:
       SETTINGS.kerning = !SETTINGS.kerning;
-      RenderLock lock;  // the render task lays out and draws the preview with this flag
-      renderer.setKerningEnabled(SETTINGS.kerning != 0);
       break;
-    }
 
     default:
       return;
