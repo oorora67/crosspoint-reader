@@ -2,8 +2,10 @@
 
 #include <SdCardFontRegistry.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <vector>
 
 // Reader font size is stored as an actual point size (see CrossPointSettings::
@@ -26,10 +28,8 @@ inline constexpr uint8_t UI_FONT_POINT_SIZES[] = {8, 10, 12};
 // UI_FONT_POINT_SIZES file. Vector families exist only on PSRAM boards.
 inline bool isUiFontCandidate(const SdCardFontFamilyInfo& family) {
   if (family.vector) return true;
-  for (const uint8_t pt : UI_FONT_POINT_SIZES) {
-    if (family.hasSize(pt)) return true;
-  }
-  return false;
+  return std::any_of(std::begin(UI_FONT_POINT_SIZES), std::end(UI_FONT_POINT_SIZES),
+                     [&family](const uint8_t pt) { return family.hasSize(pt); });
 }
 
 // Point sizes selectable for the active reader font, ascending: the vector set
