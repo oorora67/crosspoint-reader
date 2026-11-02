@@ -364,6 +364,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   uint8_t writingMode = WRITING_MODE_AUTO;
+  // Font pair kerning and trimming of adjacent fullwidth punctuation (1 = on).
+  uint8_t kerning = 1;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)
   uint8_t tiltPageTurn = TILT_OFF;
   // Master reader-touch toggle on boards with a touch controller.

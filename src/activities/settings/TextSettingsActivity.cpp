@@ -28,7 +28,7 @@ constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
     StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
     StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION, StrId::STR_EMBEDDED_STYLE,
-                                        StrId::STR_TEXT_AA};
+                                        StrId::STR_TEXT_AA, StrId::STR_KERNING};
 
 int findCurrentFontIndex(const SdCardFontRegistry* registry, const char* sdFontFamilyName, uint8_t fontFamily) {
   if (sdFontFamilyName[0] != '\0' && registry) {
@@ -282,8 +282,13 @@ void TextSettingsActivity::drawChrome() {
   const char* sizeName = (currentSizeIndex_ >= 0 && currentSizeIndex_ < static_cast<int>(sizes_.size()))
                              ? sizes_[currentSizeIndex_].name.c_str()
                              : "";
+  // The preview lays out and draws with the Kerning setting; the rest of this
+  // screen keeps the caller's kerning state.
+  const bool kerningBefore = renderer.isKerningEnabled();
+  renderer.setKerningEnabled(SETTINGS.kerning != 0);
   textsettings::renderPreview(renderer, previewLayout_, metrics_.previewPadding, metrics_.verticalSpacing, afterHeader,
                               previewHeight, familyName, sizeName);
+  renderer.setKerningEnabled(kerningBefore);
 }
 
 void TextSettingsActivity::drawFooter() {
@@ -494,6 +499,9 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
+    case StyleRow::Kerning:
+      SETTINGS.kerning = !SETTINGS.kerning;
+      break;
 
     default:
       return;
@@ -512,14 +520,16 @@ bool TextSettingsActivity::styleRowChecked(int row) const {
       return SETTINGS.embeddedStyle;
     case StyleRow::AntiAliasing:
       return SETTINGS.textAntiAliasing;
+    case StyleRow::Kerning:
+      return SETTINGS.kerning;
 
     default:
       return false;
   }
 }
 
-// Only Focus Reading shows in the preview (bold prefixes); the other Style rows
-// have no distinct preview.
+// Focus Reading (bold prefixes) and Kerning show in the preview; the other Style
+// rows have no distinct preview.
 bool TextSettingsActivity::focusedRowHasNoPreview() const {
   if (ringPos() == 0 || tab_ != Tab::Style) return false;
   const StyleRow row = static_cast<StyleRow>(ringPos() - 1);

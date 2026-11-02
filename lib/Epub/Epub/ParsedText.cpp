@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PunctuationSpacing.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -981,6 +982,18 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   for (size_t i = 0; i < words.size(); ++i) {
     wordWidths.push_back(measureFocusWordWidth(renderer, fontId, wordAt(i), getWordStyleAt(i), wordFocusBoundary[i],
                                                blockStyle.characterSpacing, wordSpacingPercent));
+  }
+
+  // Fullwidth punctuation split across tokens (a break is allowed in 」「): the
+  // left token's width leaves out the blank half of its closing mark, so the
+  // stored width is pre-trimmed for the following token. Only closing marks:
+  // their ink stays inside the width even when the line breaks there.
+  for (size_t i = 0; i + 1 < words.size(); ++i) {
+    if (!wordNoSpaceBefore[i + 1] && !wordContinues[i + 1]) continue;
+    const uint32_t left = lastCodepoint(wordAt(i));
+    if (!PunctuationSpacing::isClosing(left)) continue;
+    const int trim = renderer.getPunctuationTrim(fontId, left, firstCodepoint(wordAt(i + 1)), getWordStyleAt(i));
+    if (trim > 0 && trim < wordWidths[i]) wordWidths[i] = static_cast<uint16_t>(wordWidths[i] - trim);
   }
 
   // Adjust widths for ruby groups to comply with JLReq standards

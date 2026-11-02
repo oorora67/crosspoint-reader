@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PunctuationSpacing.h>
 #include <Utf8.h>
 #include <VerticalText.h>
 
@@ -79,7 +80,10 @@ void ParsedText::forEachVerticalCell(const GfxRenderer& renderer, const int font
     if (!cellStart) return;
     const std::string_view text(reinterpret_cast<const char*>(cellStart), cellEnd - cellStart);
     if (!cellIsRun) {
-      fn(VerticalCell{text, VerticalText::uprightKind(cellCp), cellEm, cellCodepoints});
+      const auto kind = VerticalText::uprightKind(cellCp);
+      // Kerning sets punctuation and small kana in shorter cells.
+      const int length = renderer.getVerticalCellLength(fontId, kind, cellCp, cellEm, style);
+      fn(VerticalCell{text, kind, static_cast<uint16_t>(length), cellCodepoints});
     } else if (VerticalText::isAutoCombined(text.data(), text.size())) {
       fn(VerticalCell{text, VerticalText::CellKind::Combined, cellEm, cellCodepoints});
     } else {
@@ -176,7 +180,7 @@ void ParsedText::layoutVerticalColumns(
   std::vector<size_t> columnEnds;
   size_t start = 0;
   while (start < wordCount) {
-    int pos = (start == 0 && !firstLineConsumed) ? verticalFirstColumnIndent(renderer, fontId, em) : 0;
+    int pos = verticalColumnStart(renderer, fontId, em, start, start == 0 && !firstLineConsumed);
     size_t lastBreak = start;
     size_t i = start;
     for (; i < wordCount; ++i) {
@@ -216,6 +220,25 @@ int ParsedText::verticalFirstColumnIndent(const GfxRenderer& renderer, const int
   return em;
 }
 
+// Where a column's first cell starts. With kerning on, an opening bracket sits in a half
+// cell with its ink at the top, so a paragraph that opens with one is indented by half a
+// cell instead of a whole one (JLREQ: the bracket starts half an em down).
+int ParsedText::verticalColumnStart(const GfxRenderer& renderer, const int fontId, const int em, const size_t wordIndex,
+                                    const bool firstOfParagraph) const {
+  if (!firstOfParagraph) return 0;
+  const int indent = verticalFirstColumnIndent(renderer, fontId, em);
+  if (indent == 0 || wordIndex >= words.size()) return indent;
+  const std::string_view word = wordAt(wordIndex);
+  const auto* p = reinterpret_cast<const unsigned char*>(word.data());
+  const uint32_t head = word.empty() ? 0 : utf8NextCodepoint(&p);
+  const auto kind = VerticalText::uprightKind(head);
+  if (!PunctuationSpacing::isOpening(head) ||
+      renderer.getVerticalCellLength(fontId, kind, head, em, getWordStyleAt(wordIndex)) == em) {
+    return indent;
+  }
+  return indent / 2;
+}
+
 bool ParsedText::extractColumn(const size_t first, const size_t last, const int columnLength, const int em,
                                const bool isLastColumn,
                                const std::function<void(std::unique_ptr<TextBlock>, uint32_t, size_t)>& processColumn,
@@ -250,7 +273,7 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
   int groupCellIndex = 0;
   int groupPadDone = 0;
 
-  int pos = firstOfParagraph ? verticalFirstColumnIndent(renderer, fontId, em) : 0;
+  int pos = verticalColumnStart(renderer, fontId, em, first, firstOfParagraph);
   for (size_t i = first; i < last; ++i) {
     if (i > first) pos += verticalGapBefore(renderer, fontId, i);
 
@@ -334,9 +357,10 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
         shift = spare;
         break;
       case CssTextAlign::Justify:
-        // Spread the leftover between characters, unless the column ends early so far that
-        // the text would look gapped (a long unbreakable word moved to the next column).
-        if (!isLastColumn && cellCount > 1 && spare / (cellCount - 1) <= em / 2) {
+        // Spread the leftover between characters, unless that would visibly open up the
+        // spacing (a column cut short by kinsoku, a long sideways word or a ruby group):
+        // such a column keeps the regular pitch and ends early instead.
+        if (!isLastColumn && cellCount > 1 && spare / (cellCount - 1) <= em / 8) {
           for (int k = 1; k < cellCount; ++k) {
             cellOffsets[k] = static_cast<int16_t>(cellOffsets[k] + spare * k / (cellCount - 1));
           }

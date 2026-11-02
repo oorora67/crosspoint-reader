@@ -345,7 +345,9 @@ int TextBlock::cellLength(const GfxRenderer& renderer, const int fontId, const u
     return renderer.getTextAdvanceX(fontId, wordText(i), style);
   }
   const bool half = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0;
-  return half ? verticalEm / 2 : verticalEm;
+  const int cellEm = half ? verticalEm / 2 : verticalEm;
+  const auto* p = reinterpret_cast<const unsigned char*>(wordText(i));
+  return renderer.getVerticalCellLength(fontId, cellKind(i), utf8NextCodepoint(&p), cellEm, style);
 }
 
 // One column: x is its centre line, y its top. Ruby goes on the right of the base text
@@ -402,7 +404,11 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         buf[len] = '\0';
         const auto kind =
             VerticalText::isUpright(cp) ? VerticalText::uprightKind(cp) : VerticalText::CellKind::Combined;
-        renderer.drawVerticalCell(fontId, rubyCenter, pos, rubyEm, buf, kind, EpdFontFamily::SUP);
+        // Ruby keeps full cells, so undo the half-cell lift drawVerticalCell gives an opening bracket.
+        const bool lifted = kind == VerticalText::CellKind::Rotated && PunctuationSpacing::isOpening(cp) &&
+                            renderer.getVerticalCellLength(fontId, kind, cp, rubyEm, EpdFontFamily::SUP) < rubyEm;
+        renderer.drawVerticalCell(fontId, rubyCenter, lifted ? pos + rubyEm / 2 : pos, rubyEm, buf, kind,
+                                  EpdFontFamily::SUP);
         pos += step;
       }
     }

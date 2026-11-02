@@ -96,6 +96,27 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
+### Version 59
+
+The format is unchanged. Vertical layout changed: with kerning on, commas, full
+stops and brackets take half a cell and small kana three quarters of a cell, so
+the blank space around them is removed. A paragraph that opens with a bracket is
+indented by half a cell. Older section caches are rebuilt automatically.
+
+### Version 58
+
+The format is unchanged. Vertical layout changed: with kerning on, a paragraph
+that opens with a bracket drops its indent, a wrapped column starts with the
+bracket's ink at the top, and columns are justified only when the extra space
+per gap stays small. Older section caches are rebuilt automatically.
+
+### Version 57
+
+The header adds `bool kerning` after `verticalMode`; it participates in cache
+validation. When it is set, layout applies font pair kerning and removes half an
+em between adjacent fullwidth punctuation (`PunctuationSpacing`). Older
+completed and partial section caches are rebuilt automatically.
+
 ### Version 56
 
 Vertical writing (tategaki). The header adds `bool verticalMode` after
@@ -249,7 +270,8 @@ superscript, and subscript. The format also includes:
   on-disk order mirrors the in-RAM arena so the firmware reads a whole block
   payload with a single allocation and a single SD read
 
-ImHex pattern:
+ImHex pattern (describes version 50; versions 51 to 59 are not covered, see
+the version notes above):
 
 ```c++
 import std.mem;

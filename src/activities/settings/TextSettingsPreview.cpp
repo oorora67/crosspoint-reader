@@ -108,7 +108,8 @@ void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previ
                        .characterSpacing = SETTINGS.getCharacterSpacing(),
                        .wordSpacingPercent = SETTINGS.wordSpacing,
                        .focusReading = SETTINGS.focusReadingEnabled != 0,
-                       .hyphenation = SETTINGS.hyphenationEnabled != 0};
+                       .hyphenation = SETTINGS.hyphenationEnabled != 0,
+                       .kerning = renderer.isKerningEnabled()};
   if (key != layout.key) {
     if (auto* fcm = renderer.getFontCacheManager()) {
       fcm->prewarmCache(fontId, I18N.get(StrId::STR_FONT_PREVIEW_TEXT), SETTINGS.focusReadingEnabled ? 0x03 : 0x01);
