@@ -69,6 +69,7 @@ jobs:
               { prefix: 'librora-os_papermono_', device: 'Paper Mono' },
               { prefix: 'librora-os_metalio-eink4_', device: 'MetalIO EInk4' },
               { prefix: 'librora-os_eego-a4_', device: 'EEGO A4' },
+              { prefix: 'librora-os_picco_', device: 'BOOX Picco' },
             ];
             const { data: artifactResponse } =
               await github.rest.actions.listWorkflowRunArtifacts({

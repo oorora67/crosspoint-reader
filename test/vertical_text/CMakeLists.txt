@@ -1,5 +1,6 @@
 add_executable(VerticalTextTest
   VerticalTextTest.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/CjkBreaks.cpp
   ${REPO_ROOT}/lib/Epub/Epub/ParsedText.cpp
   ${REPO_ROOT}/lib/Epub/Epub/ParsedTextVertical.cpp
   ${REPO_ROOT}/lib/Epub/Epub/WordStore.cpp

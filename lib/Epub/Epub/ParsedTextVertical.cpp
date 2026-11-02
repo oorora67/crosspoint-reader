@@ -318,7 +318,8 @@ bool ParsedText::extractColumn(const size_t first, const size_t last, const int 
         groupCellIndex++;
       }
 
-      if (firstOfParagraph && i == 0 && firstCellOfWord) {
+      // A <br> column drops the indent (firstLineConsumed) but still starts the paragraph.
+      if (!paragraphStartEmitted && i == 0 && firstCellOfWord) {
         paragraphStartCell = static_cast<uint16_t>(cellTexts.size());
       }
       const uint32_t start = sourceOffsetAfter(wordStart, codepointsBefore);

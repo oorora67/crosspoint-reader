@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Epub/blocks/TextBlock.h>
 #include <HalStorage.h>  // HalFile (kept open for streamed TTFs)
 #include <SdCardFontManager.h>
 #include <SdCardFontRegistry.h>
@@ -113,6 +114,25 @@ class SdCardFontSystem {
   static unsigned long prefixRead(void* ctx, unsigned long offset, unsigned char* buffer, unsigned long count);
 #endif  // CROSSPOINT_VECTOR_FONTS
 
+  // --- Sized variants of the reader font (CSS font-size, headings, drop caps) ---
+  // Served to the renderer through FontVariantProvider. Variant ids derive from the
+  // reader font id and point size, so ids cached in section files can be reloaded after
+  // eviction or a reboot. Least recently used variants are evicted at the caps below.
+  int resolveVariant(int fontId, float scale);
+  bool loadVariant(int fontId);
+  bool loadCpfontVariant(const SdCardFontFamilyInfo& family, uint8_t pointSize, int fontId);
+  void unloadCpfonts(GfxRenderer& renderer);
+  static int variantFontId(int readerFontId, uint8_t pointSize);
+
+  struct CpfontVariant {
+    int fontId;
+    uint32_t lastUse;
+  };
+  static constexpr size_t MAX_CPFONT_VARIANTS = TextBlock::MAX_WORD_FONTS + 2;  // Inline, block, and drop-cap fonts.
+  std::vector<CpfontVariant> cpfontVariants_;
+  uint32_t variantClock_ = 0;
+  GfxRenderer* renderer_ = nullptr;
+
   SdCardFontRegistry registry_;
   SdCardFontManager manager_;
   // System font sizes. Salted ids: the same family may also be the reader font.
@@ -172,6 +192,17 @@ class SdCardFontSystem {
   TtfSource sysTtfSources_[4];
   std::vector<std::unique_ptr<TtfEpdFont>> sysTtf_;
   std::vector<int> sysTtfIds_;
+
+  // Reader-font faces at other sizes (share ttfSources_).
+  struct TtfVariant {
+    int fontId;
+    uint32_t lastUse;
+    std::unique_ptr<TtfEpdFont> font;
+  };
+  static constexpr size_t MAX_TTF_VARIANTS = TextBlock::MAX_WORD_FONTS + 2;
+  std::vector<TtfVariant> ttfVariants_;
+  bool loadTtfVariant(uint8_t pointSize, int fontId);
+  void clearTtfVariants(GfxRenderer& renderer);
 #endif  // CROSSPOINT_VECTOR_FONTS
 };
 

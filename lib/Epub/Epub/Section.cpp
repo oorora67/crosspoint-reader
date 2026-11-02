@@ -64,12 +64,27 @@ namespace {
 // v53: Persist per-word source ranges alongside the redaction layout changes.
 // v54: Source ranges retain codepoints absorbed by NFC composition.
 // v55: Persist the first logical word of each paragraph for clipping separators.
-// v56: Vertical writing: header records the writing mode; TextBlock flags carry vertical columns
-//      with per-cell kinds; horizontal rules record their orientation.
-// v57: Header records the kerning setting (pair kerning and punctuation trimming).
-// v58: Vertical columns set a head opening bracket per JLREQ and justify less eagerly.
-// v59: With kerning, vertical punctuation takes half cells and small kana 3/4 cells.
-constexpr uint8_t SECTION_FILE_VERSION = 59;
+// v56: Rendering layout (fonts per word, drop caps, border boxes).
+// v57: Includes explicit hyphen/dash line breaks and invalidates both v56 layouts.
+// v58: Rebuild sections for corrected rendering layout and footnote placement.
+// v59: Preserve stored CSS styles during low-heap layout.
+// v60: Text running into a block or heading start stays in its own paragraph.
+// Earlier GIF/table development builds also used versions 60 through 62.
+// v63: Rebuild for corrected paragraph boundaries and supported static GIF images.
+// v64: Explicit font inheritance preserves parent emphasis and changes text layout.
+// v65: Count literal spaces after hyphens and ellipses when justifying text.
+// v66: Omit carried no-break spaces at the start of wrapped lines.
+// v67: Count only stretchable literal spaces after visual text reordering.
+// v68: Leave text below drop caps unsplit until it is laid out at full width.
+// v69: Line spacing multiplies font size instead of advanceY.
+// v70: SD-font layout rounds each scaled glyph advance to match drawing.
+// v71: Focus split offsets follow the visual run order for RTL words.
+// v72: Make ruby rendering closer to how Chromium renders ruby by default.
+// v73: TrueType vector fonts load and advance .notdef for missing glyphs.
+// v74: Vertical writing (LibroraOS): the header records the writing mode and the kerning
+//      setting; TextBlock flags carry vertical columns with per-cell kinds; horizontal rules
+//      record their orientation.
+constexpr uint8_t SECTION_FILE_VERSION = 74;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
@@ -493,7 +508,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   return true;
 }
 
-bool Section::buildSomeMore(const int maxPages) {
+bool Section::buildSomeMore(const int maxPages, bool (*yieldNow)()) {
   if (!build_ || !build_->parser) {
     LOG_ERR("SCT", "buildSomeMore with no active build");
     return false;
@@ -512,8 +527,9 @@ bool Section::buildSomeMore(const int maxPages) {
     if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
       return finalizeBuild();
     }
-    // ParseStatus::More: yield once we've laid out the requested number of pages.
-    if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
+    // ParseStatus::More: yield once we've laid out the requested number of pages, or as soon
+    // as the caller has something more urgent to do.
+    if ((maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) || (yieldNow && yieldNow())) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
       return true;
     }
